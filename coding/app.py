@@ -8,7 +8,17 @@ from functools import wraps
 import pytz
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-here'  # 請更改為安全的密鑰
+
+# 生產環境配置
+if os.environ.get('RENDER'):
+    # 在 Render 上使用環境變數
+    app.secret_key = os.environ.get('SECRET_KEY', 'fallback-secret-key-please-change')
+    # 在 Render 上，SQLite 檔案會存在 /opt/render/project/src
+    DB_PATH = '/opt/render/project/src/guitar_club.db'
+else:
+    # 開發環境配置
+    app.secret_key = 'your-secret-key-here'
+    DB_PATH = 'guitar_club.db'
 
 # 設定台灣時區
 TW_TZ = pytz.timezone('Asia/Taipei')
@@ -17,9 +27,14 @@ def get_taiwan_time():
     """取得台灣當前時間"""
     return datetime.now(TW_TZ).strftime('%Y-%m-%d %H:%M:%S')
 
+def get_db_connection():
+    """取得資料庫連接"""
+    conn = sqlite3.connect(DB_PATH)
+    return conn
+
 # 資料庫初始化
 def init_db():
-    conn = sqlite3.connect('guitar_club.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     # 創建用戶表
@@ -111,7 +126,7 @@ def admin_required(f):
         if 'user_id' not in session:
             return redirect(url_for('login'))
         
-        conn = sqlite3.connect('guitar_club.db')
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT is_admin FROM users WHERE id = ?', (session['user_id'],))
         user = cursor.fetchone()
@@ -128,6 +143,11 @@ def index():
     if 'user_id' in session:
         return redirect(url_for('dashboard'))
     return render_template('index.html')
+
+# 健康檢查端點（Render 需要）
+@app.route('/health')
+def health_check():
+    return {'status': 'healthy', 'timestamp': get_taiwan_time()}
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -708,4 +728,8 @@ def export_excel():
 
 if __name__ == '__main__':
     init_db()
-    app.run(debug=True)
+    # 在生產環境中，Render 會使用 gunicorn 啟動
+    if os.environ.get('RENDER'):
+        app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    else:
+        app.run(debug=True)

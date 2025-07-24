@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}登入 - 吉他社管理系統{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0"><i class="fas fa-sign-in-alt"></i>社員登入</h4>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="student_id" class="form-label">學號</label>
+                        <input type="text" class="form-control" id="student_id" name="student_id" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">密碼 (忘記密碼請找社團管理員)</label>
+                        <input type="password" class="form-control" id="password" name="password" required>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-success">登入</button>
+                        <a href="{{ url_for('register') }}" class="btn btn-link">還沒有帳號？立即註冊</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

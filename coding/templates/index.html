@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="text-center mb-5">
+            <h1 class="display-4"><i class="fas fa-guitar guitar-icon"></i> 吉他社管理系統</h1>
+            <p class="lead">歡迎使用吉他社器材租借管理系統</p>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-user-plus fa-3x text-primary mb-3"></i>
+                        <h5 class="card-title">新社員註冊</h5>
+                        <p class="card-text">還沒有帳號？立即註冊加入吉他社！</p>
+                        <a href="{{ url_for('register') }}" class="btn btn-primary">註冊</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-sign-in-alt fa-3x text-success mb-3"></i>
+                        <h5 class="card-title">社員登入</h5>
+                        <p class="card-text">已有帳號？請登入使用系統功能</p>
+                        <a href="{{ url_for('login') }}" class="btn btn-success">登入</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

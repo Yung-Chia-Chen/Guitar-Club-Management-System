@@ -1,0 +1,350 @@
+{% extends "base.html" %}
+
+{% block title %}主頁 - 吉他社管理系統{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-guitar"></i> 器材租借</h5>
+            </div>
+            <div class="card-body">
+                <form id="borrowForm" method="POST" action="{{ url_for('borrow_equipment') }}">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <label for="category" class="form-label">器材類別</label>
+                            <select class="form-select" id="category" name="category" required>
+                                <option value="">請選擇器材類別</option>
+                                {% for category in categories %}
+                                <option value="{{ category }}">{{ category }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="equipment_id" class="form-label">型號</label>
+                            <select class="form-select" id="equipment_id" name="equipment_id" required disabled>
+                                <option value="">請先選擇類別</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="borrow_quantity" class="form-label">借用數量</label>
+                            <select class="form-select" id="borrow_quantity" name="borrow_quantity" required disabled>
+                                <option value="">請先選擇型號</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <button type="submit" class="btn btn-primary" id="borrowBtn" disabled>
+                            <i class="fas fa-hand-holding"></i> 租借
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-info-circle"></i> 租借說明</h6>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled">
+                    <li><i class="fas fa-check text-success"></i> 請妥善保管借用器材</li>
+                    <li><i class="fas fa-check text-success"></i> 使用後請及時歸還</li>
+                    <li><i class="fas fa-check text-success"></i> 如有損壞請立即通知</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-history"></i> 我的租借記錄</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- 左側：租借記錄 -->
+                    <div class="col-lg-8">
+                        <h6><i class="fas fa-list"></i> 租借記錄</h6>
+                        {% if user_rentals %}
+                        <div class="table-responsive">
+                            <table class="table table-striped table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>器材類型</th>
+                                        <th>型號</th>
+                                        <th>數量</th>
+                                        <th>租借時間</th>
+                                        <th>歸還時間</th>
+                                        <th>狀態</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for rental in user_rentals %}
+                                    <tr>
+                                        <td>{{ rental[1] }}</td>
+                                        <td>{{ rental[2] }}</td>
+                                        <td>{{ rental[3] }} 件</td>
+                                        <td>{{ rental[0] }}</td>
+                                        <td>
+                                            {% if rental[5] > 0 %}
+                                                {% if rental[6] and rental[7] %}
+                                                    {% if rental[6] == rental[7] %}
+                                                        {{ rental[6] }}
+                                                    {% else %}
+                                                        {{ rental[6] }} ~ {{ rental[7] }}
+                                                    {% endif %}
+                                                {% else %}
+                                                    未歸還
+                                                {% endif %}
+                                            {% else %}
+                                                {{ rental[6] or rental[7] }}
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if rental[5] > 0 %}
+                                                <span class="badge bg-warning">借用中 ({{ rental[5] }}/{{ rental[3] }})</span>
+                                            {% else %}
+                                                <span class="badge bg-success">已歸還</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <p class="text-muted">暫無租借記錄</p>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- 右側：歸還功能 -->
+                    <div class="col-lg-4">
+                        <h6><i class="fas fa-undo"></i> 歸還器材</h6>
+                        <div class="card bg-light">
+                            <div class="card-body">
+                                {% set unreturned_summary = {} %}
+                                {% for rental in user_rentals %}
+                                    {% if rental[5] > 0 %}
+                                        {% set key = rental[1] + '|' + rental[2] %}
+                                        {% if key in unreturned_summary %}
+                                            {% set _ = unreturned_summary.update({key: unreturned_summary[key] + rental[5]}) %}
+                                        {% else %}
+                                            {% set _ = unreturned_summary.update({key: rental[5]}) %}
+                                        {% endif %}
+                                    {% endif %}
+                                {% endfor %}
+                                
+                                {% if unreturned_summary %}
+                                    <div class="mb-3">
+                                        <small class="text-muted">選擇要歸還的器材：</small>
+                                    </div>
+                                    {% for item_key, total_quantity in unreturned_summary.items() %}
+                                        {% set category, model = item_key.split('|') %}
+                                        <div class="mb-2">
+                                            <button type="button" class="btn btn-outline-success w-100 text-start" 
+                                                    data-bs-toggle="modal" 
+                                                    data-bs-target="#returnModal"
+                                                    data-category="{{ category }}"
+                                                    data-model="{{ model }}"
+                                                    data-max-quantity="{{ total_quantity }}">
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <div>
+                                                        <strong>{{ category }}</strong><br>
+                                                        <small>{{ model }}</small>
+                                                    </div>
+                                                    <div class="text-end">
+                                                        <span class="badge bg-warning">{{ total_quantity }} 件</span><br>
+                                                        <small class="text-muted">可歸還</small>
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <div class="text-center text-muted">
+                                        <i class="fas fa-check-circle fa-2x mb-2"></i>
+                                        <p class="mb-0">沒有需要歸還的器材</p>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        
+                        <!-- 歸還說明 -->
+                        <div class="card mt-3">
+                            <div class="card-body">
+                                <h6 class="card-title"><i class="fas fa-info-circle"></i> 歸還說明</h6>
+                                <ul class="list-unstyled small mb-0">
+                                    <li><i class="fas fa-check text-success"></i> 可選擇歸還部分或全部器材</li>
+                                    <li><i class="fas fa-check text-success"></i> 歸還後立即更新庫存</li>
+                                    <li><i class="fas fa-check text-success"></i> 支援分批歸還</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 歸還器材模態對話框 -->
+<div class="modal fade" id="returnModal" tabindex="-1" aria-labelledby="returnModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="returnModalLabel">
+                    <i class="fas fa-undo"></i> 歸還器材
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="{{ url_for('return_equipment_batch') }}">
+                <div class="modal-body">
+                    <input type="hidden" name="category" id="modalCategory">
+                    <input type="hidden" name="model" id="modalModel">
+                    
+                    <div class="mb-3">
+                        <label class="form-label">器材資訊</label>
+                        <div class="card">
+                            <div class="card-body">
+                                <h6 id="equipmentInfo" class="mb-0"></h6>
+                                <small class="text-muted">總計未歸還數量</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="returnQuantity" class="form-label">歸還數量</label>
+                        <select class="form-select" name="return_quantity" id="returnQuantity" required>
+                            <option value="">請選擇歸還數量</option>
+                        </select>
+                        <div class="form-text">可歸還數量：<span id="maxQuantityText"></span> 件 (按先借先還順序)</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-check"></i> 確認歸還
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentAvailable = 0;
+
+document.getElementById('category').addEventListener('change', function() {
+    const category = this.value;
+    const equipmentSelect = document.getElementById('equipment_id');
+    const quantitySelect = document.getElementById('borrow_quantity');
+    const borrowBtn = document.getElementById('borrowBtn');
+    
+    // 重置所有下拉選單
+    equipmentSelect.disabled = true;
+    quantitySelect.disabled = true;
+    borrowBtn.disabled = true;
+    quantitySelect.innerHTML = '<option value="">請先選擇型號</option>';
+    
+    if (!category) {
+        equipmentSelect.innerHTML = '<option value="">請先選擇類別</option>';
+        return;
+    }
+    
+    fetch(`/get_models/${category}`)
+        .then(response => response.json())
+        .then(data => {
+            equipmentSelect.innerHTML = '<option value="">請選擇型號</option>';
+            if (data.models.length === 0) {
+                equipmentSelect.innerHTML = '<option value="">該類別器材已全部借完</option>';
+                return;
+            }
+            
+            data.models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.id;
+                option.textContent = model.name;
+                option.setAttribute('data-available', model.available);
+                equipmentSelect.appendChild(option);
+            });
+            equipmentSelect.disabled = false;
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            equipmentSelect.innerHTML = '<option value="">載入失敗，請重試</option>';
+        });
+});
+
+document.getElementById('equipment_id').addEventListener('change', function() {
+    const quantitySelect = document.getElementById('borrow_quantity');
+    const borrowBtn = document.getElementById('borrowBtn');
+    
+    if (!this.value) {
+        quantitySelect.disabled = true;
+        quantitySelect.innerHTML = '<option value="">請先選擇型號</option>';
+        borrowBtn.disabled = true;
+        return;
+    }
+    
+    // 取得可借數量
+    const selectedOption = this.options[this.selectedIndex];
+    currentAvailable = parseInt(selectedOption.getAttribute('data-available')) || 0;
+    
+    // 建立數量選項
+    quantitySelect.innerHTML = '<option value="">請選擇數量</option>';
+    for (let i = 1; i <= currentAvailable; i++) {
+        const option = document.createElement('option');
+        option.value = i;
+        option.textContent = `${i} 件`;
+        quantitySelect.appendChild(option);
+    }
+    
+    quantitySelect.disabled = false;
+    borrowBtn.disabled = true;
+});
+
+document.getElementById('borrow_quantity').addEventListener('change', function() {
+    const borrowBtn = document.getElementById('borrowBtn');
+    borrowBtn.disabled = !this.value;
+});
+
+// 處理歸還模態對話框
+const returnModal = document.getElementById('returnModal');
+returnModal.addEventListener('show.bs.modal', function (event) {
+    const button = event.relatedTarget;
+    const category = button.getAttribute('data-category');
+    const model = button.getAttribute('data-model');
+    const maxQuantity = parseInt(button.getAttribute('data-max-quantity'));
+    
+    // 設定隱藏欄位
+    document.getElementById('modalCategory').value = category;
+    document.getElementById('modalModel').value = model;
+    
+    // 設定顯示資訊
+    document.getElementById('equipmentInfo').textContent = `${category} - ${model}`;
+    document.getElementById('maxQuantityText').textContent = maxQuantity;
+    
+    // 建立數量選項
+    const quantitySelect = document.getElementById('returnQuantity');
+    quantitySelect.innerHTML = '<option value="">請選擇歸還數量</option>';
+    
+    for (let i = 1; i <= maxQuantity; i++) {
+        const option = document.createElement('option');
+        option.value = i;
+        option.textContent = `${i} 件`;
+        if (i === maxQuantity) {
+            option.textContent += ' (全部歸還)';
+        }
+        quantitySelect.appendChild(option);
+    }
+});
+</script>
+{% endblock %}

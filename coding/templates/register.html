@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}註冊 - 吉他社管理系統{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0"><i class="fas fa-user-plus"></i> 會員註冊</h4>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="student_id" class="form-label">學號</label>
+                        <input type="text" class="form-control" id="student_id" name="student_id" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="name" class="form-label">姓名</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="class_name" class="form-label">班級</label>
+                        <input type="text" class="form-control" id="class_name" name="class_name" placeholder="例：資工一甲" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="club_role" class="form-label">社團身分</label>
+                        <input type="text" class="form-control" id="club_role" name="club_role" placeholder="例：社長、副社長、一般社員" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">密碼</label>
+                        <input type="password" class="form-control" id="password" name="password" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="confirm_password" class="form-label">確認密碼</label>
+                        <input type="password" class="form-control" id="confirm_password" name="confirm_password" required>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">註冊</button>
+                        <a href="{{ url_for('login') }}" class="btn btn-link">已有帳號？立即登入</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

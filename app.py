@@ -6,17 +6,15 @@ import pandas as pd
 import os
 from functools import wraps
 import pytz
+import io
 
 app = Flask(__name__)
 
 # 生產環境配置
 if os.environ.get('RENDER'):
-    # 在 Render 上使用環境變數
-    app.secret_key = os.environ.get('SECRET_KEY', 'fallback-secret-key-please-change')
-    # 在 Render 上，SQLite 檔案會存在 /opt/render/project/src
+    app.secret_key = os.environ.get('SECRET_KEY', 'fallback-secret-key-change-me')
     DB_PATH = '/opt/render/project/src/guitar_club.db'
 else:
-    # 開發環境配置
     app.secret_key = 'your-secret-key-here'
     DB_PATH = 'guitar_club.db'
 
@@ -34,86 +32,101 @@ def get_db_connection():
 
 # 資料庫初始化
 def init_db():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # 創建用戶表
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id TEXT UNIQUE NOT NULL,
-            name TEXT NOT NULL,
-            class_name TEXT NOT NULL,
-            club_role TEXT NOT NULL,
-            password TEXT NOT NULL,
-            is_admin INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL
-        )
-    ''')
-    
-    # 創建器材表
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS equipment (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            category TEXT NOT NULL,
-            model TEXT NOT NULL,
-            total_quantity INTEGER NOT NULL DEFAULT 1,
-            available_quantity INTEGER NOT NULL DEFAULT 1
-        )
-    ''')
-    
-    # 創建租借記錄表
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS rental_records (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            equipment_id INTEGER NOT NULL,
-            rental_time TEXT NOT NULL,
-            return_time TEXT NULL,
-            status TEXT DEFAULT 'borrowed',
-            FOREIGN KEY (user_id) REFERENCES users (id),
-            FOREIGN KEY (equipment_id) REFERENCES equipment (id)
-        )
-    ''')
-    
-    # 插入預設器材（包含數量）
-    equipment_data = [
-        ('插電吉他', 'Fender Stratocaster', 2),
-        ('插電吉他', 'Ibanez RG', 3),
-        ('插電吉他', 'Gibson Les Paul', 1),
-        ('不插電吉他', 'Yamaha FG830', 4),
-        ('不插電吉他', 'Martin D-28', 1),
-        ('不插電吉他', 'Taylor 814ce', 2),
-        ('控台', 'Behringer X32', 1),
-        ('控台', 'Yamaha MG16XU', 2),
-        ('喇叭', 'JBL EON615', 3),
-        ('喇叭', 'Yamaha DBR15', 2),
-    ]
-    
-    cursor.execute('SELECT COUNT(*) FROM equipment')
-    if cursor.fetchone()[0] == 0:
-        cursor.executemany(
-            'INSERT INTO equipment (category, model, total_quantity, available_quantity) VALUES (?, ?, ?, ?)', 
-            [(item[0], item[1], item[2], item[2]) for item in equipment_data]
-        )
-    
-    # 創建預設管理員帳號 (學號: admin, 密碼: admin123)
-    cursor.execute('SELECT COUNT(*) FROM users WHERE is_admin = 1')
-    if cursor.fetchone()[0] == 0:
-        admin_password = generate_password_hash('admin123')
-        admin_created_time = get_taiwan_time()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 創建用戶表
         cursor.execute('''
-            INSERT INTO users (student_id, name, class_name, club_role, password, is_admin, created_at) 
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', ('admin', '系統管理員', '管理組', '系統管理員', admin_password, 1, admin_created_time))
-    
-    conn.commit()
-    conn.close()
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                class_name TEXT NOT NULL,
+                club_role TEXT NOT NULL,
+                password TEXT NOT NULL,
+                is_admin INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+        ''')
+        
+        # 創建器材表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS equipment (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                model TEXT NOT NULL,
+                total_quantity INTEGER NOT NULL DEFAULT 1,
+                available_quantity INTEGER NOT NULL DEFAULT 1
+            )
+        ''')
+        
+        # 創建租借記錄表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS rental_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                equipment_id INTEGER NOT NULL,
+                rental_time TEXT NOT NULL,
+                return_time TEXT NULL,
+                status TEXT DEFAULT 'borrowed',
+                FOREIGN KEY (user_id) REFERENCES users (id),
+                FOREIGN KEY (equipment_id) REFERENCES equipment (id)
+            )
+        ''')
+        
+        # 插入預設器材（包含數量）
+        equipment_data = [
+            ('插電吉他', 'Fender Stratocaster', 2),
+            ('插電吉他', 'Ibanez RG', 3),
+            ('插電吉他', 'Gibson Les Paul', 1),
+            ('不插電吉他', 'Yamaha FG830', 4),
+            ('不插電吉他', 'Martin D-28', 1),
+            ('不插電吉他', 'Taylor 814ce', 2),
+            ('控台', 'Behringer X32', 1),
+            ('控台', 'Yamaha MG16XU', 2),
+            ('喇叭', 'JBL EON615', 3),
+            ('喇叭', 'Yamaha DBR15', 2),
+        ]
+        
+        cursor.execute('SELECT COUNT(*) FROM equipment')
+        if cursor.fetchone()[0] == 0:
+            cursor.executemany(
+                'INSERT INTO equipment (category, model, total_quantity, available_quantity) VALUES (?, ?, ?, ?)', 
+                [(item[0], item[1], item[2], item[2]) for item in equipment_data]
+            )
+        
+        # 創建預設管理員帳號
+        cursor.execute('SELECT COUNT(*) FROM users WHERE is_admin = 1')
+        if cursor.fetchone()[0] == 0:
+            admin_password = generate_password_hash('admin123')
+            admin_created_time = get_taiwan_time()
+            cursor.execute('''
+                INSERT INTO users (student_id, name, class_name, club_role, password, is_admin, created_at) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', ('admin', '系統管理員', '管理組', '系統管理員', admin_password, 1, admin_created_time))
+        
+        conn.commit()
+        conn.close()
+        print("Database initialized successfully")
+    except Exception as e:
+        print(f"Database initialization error: {e}")
+
+# 全域變數確保只初始化一次
+_db_initialized = False
+
+def ensure_db_initialized():
+    """確保資料庫已初始化"""
+    global _db_initialized
+    if not _db_initialized:
+        init_db()
+        _db_initialized = True
 
 # 登入檢查裝飾器
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        ensure_db_initialized()
         if 'user_id' not in session:
             return redirect(url_for('login'))
         return f(*args, **kwargs)
@@ -123,6 +136,7 @@ def login_required(f):
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        ensure_db_initialized()
         if 'user_id' not in session:
             return redirect(url_for('login'))
         
@@ -140,17 +154,23 @@ def admin_required(f):
 
 @app.route('/')
 def index():
+    ensure_db_initialized()
     if 'user_id' in session:
         return redirect(url_for('dashboard'))
     return render_template('index.html')
 
-# 健康檢查端點（Render 需要）
 @app.route('/health')
 def health_check():
-    return {'status': 'healthy', 'timestamp': get_taiwan_time()}
+    ensure_db_initialized()
+    return {
+        'status': 'healthy', 
+        'timestamp': get_taiwan_time(),
+        'message': 'Guitar Club System is running'
+    }
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+    ensure_db_initialized()
     if request.method == 'POST':
         student_id = request.form['student_id']
         name = request.form['name']
@@ -166,7 +186,7 @@ def register():
         hashed_password = generate_password_hash(password)
         
         try:
-            conn = sqlite3.connect('guitar_club.db')
+            conn = get_db_connection()
             cursor = conn.cursor()
             created_time = get_taiwan_time()
             cursor.execute('''
@@ -186,11 +206,12 @@ def register():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    ensure_db_initialized()
     if request.method == 'POST':
         student_id = request.form['student_id']
         password = request.form['password']
         
-        conn = sqlite3.connect('guitar_club.db')
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT id, name, password, is_admin FROM users WHERE student_id = ?', (student_id,))
         user = cursor.fetchone()
@@ -217,7 +238,7 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    conn = sqlite3.connect('guitar_club.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     # 取得器材類別
@@ -248,7 +269,7 @@ def dashboard():
 @app.route('/get_models/<category>')
 @login_required
 def get_models(category):
-    conn = sqlite3.connect('guitar_club.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
         SELECT id, model, available_quantity, total_quantity 
@@ -272,7 +293,7 @@ def borrow_equipment():
     equipment_id = request.form['equipment_id']
     borrow_quantity = int(request.form.get('borrow_quantity', 1))
     
-    conn = sqlite3.connect('guitar_club.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     # 檢查器材是否可用
@@ -328,7 +349,7 @@ def return_equipment_batch():
         rental_time = request.form.get('rental_time')  # 可能為空
         use_rental_time = bool(rental_time)
     
-    conn = sqlite3.connect('guitar_club.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     # 根據是否有租借時間決定查詢方式
@@ -408,7 +429,7 @@ def return_equipment_batch():
 @app.route('/admin')
 @admin_required
 def admin_panel():
-    conn = sqlite3.connect('guitar_club.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     # 取得所有會員資訊
@@ -506,7 +527,7 @@ def update_equipment():
     equipment_id = request.form['equipment_id']
     new_total_quantity = int(request.form['total_quantity'])
     
-    conn = sqlite3.connect('guitar_club.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     # 取得目前器材資訊
@@ -555,7 +576,7 @@ def add_equipment():
         flash('請填寫完整且正確的器材資訊', 'error')
         return redirect(url_for('admin_panel'))
     
-    conn = sqlite3.connect('guitar_club.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     # 檢查是否已存在相同的器材
@@ -584,7 +605,7 @@ def add_equipment():
 @app.route('/delete_equipment/<int:equipment_id>')
 @admin_required
 def delete_equipment(equipment_id):
-    conn = sqlite3.connect('guitar_club.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     # 檢查是否有未歸還的租借記錄
@@ -619,7 +640,7 @@ def delete_equipment(equipment_id):
 @app.route('/delete_user/<int:user_id>')
 @admin_required
 def delete_user(user_id):
-    conn = sqlite3.connect('guitar_club.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     # 檢查用戶是否存在且不是管理員
@@ -662,7 +683,7 @@ def reset_user_password():
         flash('新密碼長度至少需要4個字元', 'error')
         return redirect(url_for('admin_panel'))
     
-    conn = sqlite3.connect('guitar_club.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     # 檢查用戶是否存在且不是管理員
@@ -687,10 +708,7 @@ def reset_user_password():
 @app.route('/export_excel')
 @admin_required
 def export_excel():
-    import io
-    from datetime import datetime
-    
-    conn = sqlite3.connect('guitar_club.db')
+    conn = get_db_connection()
     
     # 取得所有租借記錄
     query = '''
@@ -725,10 +743,19 @@ def export_excel():
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
 
+# 在程式啟動時初始化資料庫（支援不同的 Flask 版本）
+try:
+    # 嘗試使用新版 Flask 的方法
+    with app.app_context():
+        ensure_db_initialized()
+except:
+    # 如果失敗，在第一個請求時初始化
+    @app.before_first_request
+    def initialize_database():
+        ensure_db_initialized()
 
 if __name__ == '__main__':
-    init_db()
-    # 在生產環境中，Render 會使用 gunicorn 啟動
+    ensure_db_initialized()
     if os.environ.get('RENDER'):
         app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
     else:

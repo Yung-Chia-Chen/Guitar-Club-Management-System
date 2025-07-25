@@ -6,7 +6,7 @@
 <style>
 /* 自訂租借記錄顏色 - 深色背景 */
 .rental-record {
-    background-color: #0d6efd !important; /* Bootstrap 藍色 */
+    background-color: #f90dfd !important; /* Bootstrap 藍色 */
     color: white !important; /* 白色文字 */
 }
 
@@ -31,7 +31,7 @@
                 </div>
             </div>
             <div class="col-md-4">
-                <div class="card bg-warning text-white">
+                <div class="card bg-success text-white">
                     <div class="card-body">
                         <h5>未歸還器材</h5>
                         <h3>{{ unreturned|sum(attribute=4) }}</h3>
@@ -40,7 +40,7 @@
                 </div>
             </div>
             <div class="col-md-4">
-                <div class="card bg-success text-white">
+                <div class="card bg-info text-white">
                     <div class="card-body">
                         <h5>總租借次數</h5>
                         <h3>{{ all_rentals|length }}</h3>
@@ -226,7 +226,7 @@
                                         <td>{{ item[2] }}</td>
                                         <td>{{ item[3] }}</td>
                                         <td>
-                                            <span class="badge bg-warning">{{ item[4] }} 件</span>
+                                            <span class="badge bg-primary">{{ item[4] }} 件</span>
                                         </td>
                                         <td>{{ item[5] }}</td>
                                         <td>
@@ -361,12 +361,12 @@
                                         <td>
                                             {% if record[7] == 'rental' %}
                                                 {% if record[9] > 0 %}
-                                                    <span class="badge bg-success">租借記錄 (共{{ record[8] }}件)</span>
+                                                    <span class="badge bg-success">租借中 (共{{ record[8] }}件)</span>
                                                 {% else %}
                                                     <span class="badge bg-secondary">已全部歸還</span>
                                                 {% endif %}
                                             {% elif record[9] > 0 %}
-                                                <span class="badge bg-danger">已歸還 (剩餘{{ record[9] }}件未還)</span>
+                                                <span class="badge bg-danger">部分歸還 (剩餘{{ record[9] }}件未還)</span>
                                             {% else %}
                                                 
                                             {% endif %}

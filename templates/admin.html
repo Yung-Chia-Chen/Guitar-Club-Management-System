@@ -10,11 +10,6 @@
     color: white !important; /* 白色文字 */
 }
 
-.rental-record:hover {
-    background-color: #0b5ed7 !important; /* hover 效果稍深一點 */
-    color: white !important;
-}
-
 /* 確保租借記錄中的 badge 在深色背景下可見 */
 .rental-record .badge {
     border: 1px solid rgba(255,255,255,0.3);
@@ -342,8 +337,14 @@
                                 <tbody>
                                     {% for record in all_rentals %}
                                     <tr {% if record[7] == 'rental' %}class="rental-record"{% endif %}>
-                                        <td>{{ record[0] }}</td>
-                                        <td>{{ record[1] }}</td>
+                                        <td>{% if record[7] == 'rental' %}
+                                            {{ record[0] }}
+                                            {% endif %}
+                                        </td>
+                                        <td>{% if record[7] == 'rental' %}
+                                            {{ record[1] }}
+                                            {% endif %}
+                                        </td>
                                         <td>{{ record[2] }}</td>
                                         <td>{{ record[3] }}</td>
                                         <td>{{ record[6] }} 件</td>
@@ -360,14 +361,14 @@
                                         <td>
                                             {% if record[7] == 'rental' %}
                                                 {% if record[9] > 0 %}
-                                                    <span class="badge bg-primary">租借記錄 (共{{ record[8] }}件)</span>
+                                                    <span class="badge bg-success">租借記錄 (共{{ record[8] }}件)</span>
                                                 {% else %}
-                                                    <span class="badge bg-secondary">租借記錄 (已全部歸還)</span>
+                                                    <span class="badge bg-secondary">已全部歸還</span>
                                                 {% endif %}
                                             {% elif record[9] > 0 %}
-                                                <span class="badge bg-info">已歸還 (剩餘{{ record[9] }}件未還)</span>
+                                                <span class="badge bg-danger">已歸還 (剩餘{{ record[9] }}件未還)</span>
                                             {% else %}
-                                                <span class="badge bg-success">已歸還 (該批次已完成)</span>
+                                                
                                             {% endif %}
                                         </td>
                                     </tr>

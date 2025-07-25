@@ -10,14 +10,6 @@ import pytz
 import io
 from urllib.parse import urlparse
 
-# 載入 .env 檔案（本地開發用）
-if not os.environ.get('RENDER'):
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        pass  # 如果沒有安裝 python-dotenv 也沒關係
-
 app = Flask(__name__)
 
 # 生產環境配置
@@ -25,8 +17,8 @@ if os.environ.get('RENDER'):
     app.secret_key = os.environ.get('SECRET_KEY', 'fallback-secret-key-change-me')
     DATABASE_URL = os.environ.get('DATABASE_URL')
 else:
-    app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here')
-    # 本地開發時優先使用環境變數中的 DATABASE_URL
+    app.secret_key = 'your-secret-key-here'
+    # 本地開發時，你可以設定本地 PostgreSQL 或使用 SQLite 替代
     DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///guitar_club.db')
 
 # 設定台灣時區
@@ -38,20 +30,17 @@ def get_taiwan_time():
 
 def get_db_connection():
     """取得資料庫連接"""
-    if DATABASE_URL and (DATABASE_URL.startswith('postgresql://') or DATABASE_URL.startswith('postgres://')):
+    if DATABASE_URL.startswith('postgresql://') or DATABASE_URL.startswith('postgres://'):
         # PostgreSQL 連接
-        try:
-            conn = psycopg2.connect(DATABASE_URL)
-            conn.autocommit = False  # 手動控制事務
-            return conn
-        except psycopg2.Error as e:
-            print(f"PostgreSQL connection error: {e}")
-            raise
+        # 修正 postgres:// 為 postgresql:// (某些版本需要)
+        db_url = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+        conn = psycopg2.connect(db_url)
+        conn.autocommit = False  # 手動控制事務
+        return conn
     else:
         # SQLite 連接（向後相容，本地開發用）
         import sqlite3
-        db_path = DATABASE_URL.replace('sqlite:///', '') if DATABASE_URL else 'guitar_club.db'
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(DATABASE_URL.replace('sqlite:///', ''))
         return conn
 
 def is_postgresql():

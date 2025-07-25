@@ -554,36 +554,40 @@ def return_equipment_batch():
                 ''', (return_time, record[0]))
         
         # 更新器材可用數量
-        if is_postgresql():
-            cursor.execute('''
-                SELECT DISTINCT equipment_id FROM rental_records 
-                WHERE id = ANY(%s)
-            ''', ([record[0] for record in records_to_return],))
-        else:
-            placeholders = ','.join('?' * len(records_to_return))
-            cursor.execute(f'''
-                SELECT DISTINCT equipment_id FROM rental_records 
-                WHERE id IN ({placeholders})
-            ''', [record[0] for record in records_to_return])
+        equipment_ids_to_update = set()
+        for record in records_to_return:
+            # 找出這個記錄對應的器材ID
+            if is_postgresql():
+                cursor.execute('SELECT equipment_id FROM rental_records WHERE id = %s', (record[0],))
+            else:
+                cursor.execute('SELECT equipment_id FROM rental_records WHERE id = ?', (record[0],))
+            equipment_id = cursor.fetchone()[0]
+            equipment_ids_to_update.add(equipment_id)
         
-        equipment_ids = cursor.fetchall()
-        for (equipment_id,) in equipment_ids:
-            # 計算這批歸還中該器材的數量
-            return_count = sum(1 for record in records_to_return 
-                             if record[0] in [r[0] for r in records_to_return])
+        # 為每個器材增加歸還的數量
+        for equipment_id in equipment_ids_to_update:
+            # 計算這個器材在這批歸還中的數量
+            equipment_return_count = 0
+            for record in records_to_return:
+                if is_postgresql():
+                    cursor.execute('SELECT equipment_id FROM rental_records WHERE id = %s', (record[0],))
+                else:
+                    cursor.execute('SELECT equipment_id FROM rental_records WHERE id = ?', (record[0],))
+                if cursor.fetchone()[0] == equipment_id:
+                    equipment_return_count += 1
             
             if is_postgresql():
                 cursor.execute('''
                     UPDATE equipment 
                     SET available_quantity = available_quantity + %s 
                     WHERE id = %s
-                ''', (actual_return_quantity, equipment_id))
+                ''', (equipment_return_count, equipment_id))
             else:
                 cursor.execute('''
                     UPDATE equipment 
                     SET available_quantity = available_quantity + ? 
                     WHERE id = ?
-                ''', (actual_return_quantity, equipment_id))
+                ''', (equipment_return_count, equipment_id))
         
         conn.commit()
         flash(f'成功歸還 {actual_return_quantity} 件 {equipment_category} - {equipment_model}', 'success')
@@ -607,36 +611,110 @@ def admin_panel():
         cursor.execute('SELECT id, student_id, name, class_name, club_role, created_at FROM users WHERE is_admin = 0')
         members = cursor.fetchall()
         
-        # 取得所有租借記錄（簡化版）
+        # 取得所有租借記錄（恢復原來的複雜邏輯）
         if is_postgresql():
             cursor.execute('''
-                SELECT u.name, u.student_id, e.category, e.model, 
-                       rr.rental_time, rr.return_time,
-                       COUNT(*) as batch_quantity,
-                       'rental' as record_type,
-                       COUNT(*) as total_rental_quantity,
-                       SUM(CASE WHEN rr.status = 'borrowed' THEN 1 ELSE 0 END) as remaining_borrowed
-                FROM rental_records rr
-                JOIN users u ON rr.user_id = u.id
-                JOIN equipment e ON rr.equipment_id = e.id
-                GROUP BY u.id, e.id, rr.rental_time, rr.return_time, u.name, u.student_id, e.category, e.model
-                ORDER BY rr.rental_time DESC
-                LIMIT 50
+                WITH rental_summary AS (
+                    -- 原始租借記錄（每次租借的總數量）
+                    SELECT u.name, u.student_id, e.category, e.model, 
+                           rr.rental_time, 
+                           NULL as return_time,
+                           COUNT(*) as batch_quantity,
+                           'rental' as record_type,
+                           COUNT(*) as total_rental_quantity,
+                           SUM(CASE WHEN rr.status = 'borrowed' THEN 1 ELSE 0 END) as remaining_borrowed,
+                           0 as sort_order
+                    FROM rental_records rr
+                    JOIN users u ON rr.user_id = u.id
+                    JOIN equipment e ON rr.equipment_id = e.id
+                    GROUP BY u.id, e.id, rr.rental_time, u.name, u.student_id, e.category, e.model
+                    
+                    UNION ALL
+                    
+                    -- 歸還記錄（每次歸還的數量）
+                    SELECT u.name, u.student_id, e.category, e.model, 
+                           rr.rental_time,
+                           rr.return_time,
+                           COUNT(*) as batch_quantity,
+                           'return' as record_type,
+                           (SELECT COUNT(*) FROM rental_records rr2 
+                            JOIN equipment e2 ON rr2.equipment_id = e2.id 
+                            WHERE rr2.user_id = rr.user_id 
+                              AND rr2.rental_time = rr.rental_time
+                              AND e2.category = e.category 
+                              AND e2.model = e.model) as total_rental_quantity,
+                           (SELECT COUNT(*) FROM rental_records rr3 
+                            JOIN equipment e3 ON rr3.equipment_id = e3.id 
+                            WHERE rr3.user_id = rr.user_id 
+                              AND rr3.rental_time = rr.rental_time
+                              AND e3.category = e.category 
+                              AND e3.model = e.model
+                              AND rr3.status = 'borrowed') as remaining_borrowed,
+                           1 as sort_order
+                    FROM rental_records rr
+                    JOIN users u ON rr.user_id = u.id
+                    JOIN equipment e ON rr.equipment_id = e.id
+                    WHERE rr.return_time IS NOT NULL
+                    GROUP BY u.id, e.id, rr.rental_time, rr.return_time, u.name, u.student_id, e.category, e.model
+                )
+                SELECT name, student_id, category, model, rental_time, return_time,
+                       batch_quantity, record_type, total_rental_quantity, remaining_borrowed
+                FROM rental_summary
+                ORDER BY rental_time DESC, sort_order ASC, 
+                         CASE WHEN return_time IS NULL THEN '9999-12-31 23:59:59'::timestamp ELSE return_time END DESC
+                LIMIT 100
             ''')
         else:
             cursor.execute('''
-                SELECT u.name, u.student_id, e.category, e.model, 
-                       rr.rental_time, rr.return_time,
-                       COUNT(*) as batch_quantity,
-                       'rental' as record_type,
-                       COUNT(*) as total_rental_quantity,
-                       SUM(CASE WHEN rr.status = 'borrowed' THEN 1 ELSE 0 END) as remaining_borrowed
-                FROM rental_records rr
-                JOIN users u ON rr.user_id = u.id
-                JOIN equipment e ON rr.equipment_id = e.id
-                GROUP BY u.id, e.id, rr.rental_time, rr.return_time
-                ORDER BY rr.rental_time DESC
-                LIMIT 50
+                WITH rental_summary AS (
+                    -- 原始租借記錄（每次租借的總數量）
+                    SELECT u.name, u.student_id, e.category, e.model, 
+                           rr.rental_time, 
+                           NULL as return_time,
+                           COUNT(*) as batch_quantity,
+                           'rental' as record_type,
+                           COUNT(*) as total_rental_quantity,
+                           SUM(CASE WHEN rr.status = 'borrowed' THEN 1 ELSE 0 END) as remaining_borrowed,
+                           0 as sort_order
+                    FROM rental_records rr
+                    JOIN users u ON rr.user_id = u.id
+                    JOIN equipment e ON rr.equipment_id = e.id
+                    GROUP BY u.id, e.id, rr.rental_time
+                    
+                    UNION ALL
+                    
+                    -- 歸還記錄（每次歸還的數量）
+                    SELECT u.name, u.student_id, e.category, e.model, 
+                           rr.rental_time,
+                           rr.return_time,
+                           COUNT(*) as batch_quantity,
+                           'return' as record_type,
+                           (SELECT COUNT(*) FROM rental_records rr2 
+                            JOIN equipment e2 ON rr2.equipment_id = e2.id 
+                            WHERE rr2.user_id = rr.user_id 
+                              AND rr2.rental_time = rr.rental_time
+                              AND e2.category = e.category 
+                              AND e2.model = e.model) as total_rental_quantity,
+                           (SELECT COUNT(*) FROM rental_records rr3 
+                            JOIN equipment e3 ON rr3.equipment_id = e3.id 
+                            WHERE rr3.user_id = rr.user_id 
+                              AND rr3.rental_time = rr.rental_time
+                              AND e3.category = e.category 
+                              AND e3.model = e.model
+                              AND rr3.status = 'borrowed') as remaining_borrowed,
+                           1 as sort_order
+                    FROM rental_records rr
+                    JOIN users u ON rr.user_id = u.id
+                    JOIN equipment e ON rr.equipment_id = e.id
+                    WHERE rr.return_time IS NOT NULL
+                    GROUP BY u.id, e.id, rr.rental_time, rr.return_time
+                )
+                SELECT name, student_id, category, model, rental_time, return_time,
+                       batch_quantity, record_type, total_rental_quantity, remaining_borrowed
+                FROM rental_summary
+                ORDER BY rental_time DESC, sort_order ASC, 
+                         CASE WHEN return_time IS NULL THEN '9999-12-31 23:59:59' ELSE return_time END DESC
+                LIMIT 100
             ''')
         all_rentals = cursor.fetchall()
         

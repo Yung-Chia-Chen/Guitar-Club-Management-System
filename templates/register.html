@@ -25,7 +25,12 @@
                     </div>
                     <div class="mb-3">
                         <label for="club_role" class="form-label">社團身分</label>
-                        <input type="text" class="form-control" id="club_role" name="club_role" placeholder="例：社長、副社長、一般社員" required>
+                        <select class="form-select" id="club_role" name="club_role" required>
+                            <option value="">請選擇社團身分</option>
+                            <option value="社員">社員</option>
+                            <option value="非社員">非社員</option>
+                            <option value="老人">老人</option>
+                        </select>
                     </div>
                     <div class="mb-3">
                         <label for="password" class="form-label">密碼</label>

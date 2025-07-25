@@ -611,51 +611,58 @@ def admin_panel():
         cursor.execute('SELECT id, student_id, name, class_name, club_role, created_at FROM users WHERE is_admin = 0')
         members = cursor.fetchall()
         
-        # 取得所有租借記錄（恢復原來的複雜邏輯）
+        # 取得所有租借記錄（修復 PostgreSQL GROUP BY 問題）
         if is_postgresql():
             cursor.execute('''
-                WITH rental_summary AS (
-                    -- 原始租借記錄（每次租借的總數量）
+                WITH rental_base AS (
                     SELECT u.name, u.student_id, e.category, e.model, 
-                           rr.rental_time, 
-                           NULL as return_time,
-                           COUNT(*) as batch_quantity,
-                           'rental' as record_type,
-                           COUNT(*) as total_rental_quantity,
-                           SUM(CASE WHEN rr.status = 'borrowed' THEN 1 ELSE 0 END) as remaining_borrowed,
-                           0 as sort_order
+                           rr.rental_time, rr.return_time, rr.status,
+                           rr.user_id, rr.equipment_id
                     FROM rental_records rr
                     JOIN users u ON rr.user_id = u.id
                     JOIN equipment e ON rr.equipment_id = e.id
-                    GROUP BY u.id, e.id, rr.rental_time, u.name, u.student_id, e.category, e.model
+                ),
+                rental_counts AS (
+                    SELECT user_id, equipment_id, rental_time,
+                           COUNT(*) as total_count,
+                           SUM(CASE WHEN status = 'borrowed' THEN 1 ELSE 0 END) as borrowed_count
+                    FROM rental_records
+                    GROUP BY user_id, equipment_id, rental_time
+                ),
+                rental_summary AS (
+                    -- 原始租借記錄
+                    SELECT rb.name, rb.student_id, rb.category, rb.model, 
+                           rb.rental_time, 
+                           NULL as return_time,
+                           rc.total_count as batch_quantity,
+                           'rental' as record_type,
+                           rc.total_count as total_rental_quantity,
+                           rc.borrowed_count as remaining_borrowed,
+                           0 as sort_order
+                    FROM rental_base rb
+                    JOIN rental_counts rc ON rb.user_id = rc.user_id 
+                        AND rb.equipment_id = rc.equipment_id 
+                        AND rb.rental_time = rc.rental_time
+                    GROUP BY rb.name, rb.student_id, rb.category, rb.model, rb.rental_time,
+                             rc.total_count, rc.borrowed_count
                     
                     UNION ALL
                     
-                    -- 歸還記錄（每次歸還的數量）
-                    SELECT u.name, u.student_id, e.category, e.model, 
-                           rr.rental_time,
-                           rr.return_time,
+                    -- 歸還記錄
+                    SELECT rb.name, rb.student_id, rb.category, rb.model, 
+                           rb.rental_time, rb.return_time,
                            COUNT(*) as batch_quantity,
                            'return' as record_type,
-                           (SELECT COUNT(*) FROM rental_records rr2 
-                            JOIN equipment e2 ON rr2.equipment_id = e2.id 
-                            WHERE rr2.user_id = rr.user_id 
-                              AND rr2.rental_time = rr.rental_time
-                              AND e2.category = e.category 
-                              AND e2.model = e.model) as total_rental_quantity,
-                           (SELECT COUNT(*) FROM rental_records rr3 
-                            JOIN equipment e3 ON rr3.equipment_id = e3.id 
-                            WHERE rr3.user_id = rr.user_id 
-                              AND rr3.rental_time = rr.rental_time
-                              AND e3.category = e.category 
-                              AND e3.model = e.model
-                              AND rr3.status = 'borrowed') as remaining_borrowed,
+                           rc.total_count as total_rental_quantity,
+                           rc.borrowed_count as remaining_borrowed,
                            1 as sort_order
-                    FROM rental_records rr
-                    JOIN users u ON rr.user_id = u.id
-                    JOIN equipment e ON rr.equipment_id = e.id
-                    WHERE rr.return_time IS NOT NULL
-                    GROUP BY u.id, e.id, rr.rental_time, rr.return_time, u.name, u.student_id, e.category, e.model
+                    FROM rental_base rb
+                    JOIN rental_counts rc ON rb.user_id = rc.user_id 
+                        AND rb.equipment_id = rc.equipment_id 
+                        AND rb.rental_time = rc.rental_time
+                    WHERE rb.return_time IS NOT NULL
+                    GROUP BY rb.name, rb.student_id, rb.category, rb.model, 
+                             rb.rental_time, rb.return_time, rc.total_count, rc.borrowed_count
                 )
                 SELECT name, student_id, category, model, rental_time, return_time,
                        batch_quantity, record_type, total_rental_quantity, remaining_borrowed
@@ -666,48 +673,55 @@ def admin_panel():
             ''')
         else:
             cursor.execute('''
-                WITH rental_summary AS (
-                    -- 原始租借記錄（每次租借的總數量）
+                WITH rental_base AS (
                     SELECT u.name, u.student_id, e.category, e.model, 
-                           rr.rental_time, 
-                           NULL as return_time,
-                           COUNT(*) as batch_quantity,
-                           'rental' as record_type,
-                           COUNT(*) as total_rental_quantity,
-                           SUM(CASE WHEN rr.status = 'borrowed' THEN 1 ELSE 0 END) as remaining_borrowed,
-                           0 as sort_order
+                           rr.rental_time, rr.return_time, rr.status,
+                           rr.user_id, rr.equipment_id
                     FROM rental_records rr
                     JOIN users u ON rr.user_id = u.id
                     JOIN equipment e ON rr.equipment_id = e.id
-                    GROUP BY u.id, e.id, rr.rental_time
+                ),
+                rental_counts AS (
+                    SELECT user_id, equipment_id, rental_time,
+                           COUNT(*) as total_count,
+                           SUM(CASE WHEN status = 'borrowed' THEN 1 ELSE 0 END) as borrowed_count
+                    FROM rental_records
+                    GROUP BY user_id, equipment_id, rental_time
+                ),
+                rental_summary AS (
+                    -- 原始租借記錄
+                    SELECT rb.name, rb.student_id, rb.category, rb.model, 
+                           rb.rental_time, 
+                           NULL as return_time,
+                           rc.total_count as batch_quantity,
+                           'rental' as record_type,
+                           rc.total_count as total_rental_quantity,
+                           rc.borrowed_count as remaining_borrowed,
+                           0 as sort_order
+                    FROM rental_base rb
+                    JOIN rental_counts rc ON rb.user_id = rc.user_id 
+                        AND rb.equipment_id = rc.equipment_id 
+                        AND rb.rental_time = rc.rental_time
+                    GROUP BY rb.name, rb.student_id, rb.category, rb.model, rb.rental_time,
+                             rc.total_count, rc.borrowed_count
                     
                     UNION ALL
                     
-                    -- 歸還記錄（每次歸還的數量）
-                    SELECT u.name, u.student_id, e.category, e.model, 
-                           rr.rental_time,
-                           rr.return_time,
+                    -- 歸還記錄
+                    SELECT rb.name, rb.student_id, rb.category, rb.model, 
+                           rb.rental_time, rb.return_time,
                            COUNT(*) as batch_quantity,
                            'return' as record_type,
-                           (SELECT COUNT(*) FROM rental_records rr2 
-                            JOIN equipment e2 ON rr2.equipment_id = e2.id 
-                            WHERE rr2.user_id = rr.user_id 
-                              AND rr2.rental_time = rr.rental_time
-                              AND e2.category = e.category 
-                              AND e2.model = e.model) as total_rental_quantity,
-                           (SELECT COUNT(*) FROM rental_records rr3 
-                            JOIN equipment e3 ON rr3.equipment_id = e3.id 
-                            WHERE rr3.user_id = rr.user_id 
-                              AND rr3.rental_time = rr.rental_time
-                              AND e3.category = e.category 
-                              AND e3.model = e.model
-                              AND rr3.status = 'borrowed') as remaining_borrowed,
+                           rc.total_count as total_rental_quantity,
+                           rc.borrowed_count as remaining_borrowed,
                            1 as sort_order
-                    FROM rental_records rr
-                    JOIN users u ON rr.user_id = u.id
-                    JOIN equipment e ON rr.equipment_id = e.id
-                    WHERE rr.return_time IS NOT NULL
-                    GROUP BY u.id, e.id, rr.rental_time, rr.return_time
+                    FROM rental_base rb
+                    JOIN rental_counts rc ON rb.user_id = rc.user_id 
+                        AND rb.equipment_id = rc.equipment_id 
+                        AND rb.rental_time = rc.rental_time
+                    WHERE rb.return_time IS NOT NULL
+                    GROUP BY rb.name, rb.student_id, rb.category, rb.model, 
+                             rb.rental_time, rb.return_time, rc.total_count, rc.borrowed_count
                 )
                 SELECT name, student_id, category, model, rental_time, return_time,
                        batch_quantity, record_type, total_rental_quantity, remaining_borrowed

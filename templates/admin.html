@@ -3,6 +3,24 @@
 {% block title %}管理介面 - 吉他社管理系統{% endblock %}
 
 {% block content %}
+<style>
+/* 自訂租借記錄顏色 - 深色背景 */
+.rental-record {
+    background-color: #0d6efd !important; /* Bootstrap 藍色 */
+    color: white !important; /* 白色文字 */
+}
+
+.rental-record:hover {
+    background-color: #0b5ed7 !important; /* hover 效果稍深一點 */
+    color: white !important;
+}
+
+/* 確保租借記錄中的 badge 在深色背景下可見 */
+.rental-record .badge {
+    border: 1px solid rgba(255,255,255,0.3);
+}
+</style>
+
 <div class="row">
     <div class="col-12">
         <h2><i class="fas fa-cog"></i> 管理介面</h2>

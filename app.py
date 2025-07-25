@@ -466,10 +466,6 @@ def borrow_equipment():
     
     return redirect(url_for('dashboard'))
 
-# 由於程式較長，其他路由的修改方式類似
-# 主要就是將所有的 ? 佔位符在 PostgreSQL 環境下改為 %s
-# 以下我會展示幾個重要的路由修改...
-
 @app.route('/return_equipment_batch', methods=['GET', 'POST'])
 @login_required
 def return_equipment_batch():
@@ -600,14 +596,372 @@ def return_equipment_batch():
     
     return redirect(url_for('dashboard'))
 
-# 管理介面和其他路由的修改方式類似，主要是：
-# 1. 將 ? 佔位符改為 %s (當使用 PostgreSQL 時)
-# 2. 使用統一的 execute_query 函數
-# 3. 正確處理事務和錯誤
+@app.route('/admin')
+@admin_required
+def admin_panel():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # 取得所有會員資訊
+        cursor.execute('SELECT id, student_id, name, class_name, club_role, created_at FROM users WHERE is_admin = 0')
+        members = cursor.fetchall()
+        
+        # 取得所有租借記錄（簡化版）
+        if is_postgresql():
+            cursor.execute('''
+                SELECT u.name, u.student_id, e.category, e.model, 
+                       rr.rental_time, rr.return_time,
+                       COUNT(*) as batch_quantity,
+                       'rental' as record_type,
+                       COUNT(*) as total_rental_quantity,
+                       SUM(CASE WHEN rr.status = 'borrowed' THEN 1 ELSE 0 END) as remaining_borrowed
+                FROM rental_records rr
+                JOIN users u ON rr.user_id = u.id
+                JOIN equipment e ON rr.equipment_id = e.id
+                GROUP BY u.id, e.id, rr.rental_time, rr.return_time, u.name, u.student_id, e.category, e.model
+                ORDER BY rr.rental_time DESC
+                LIMIT 50
+            ''')
+        else:
+            cursor.execute('''
+                SELECT u.name, u.student_id, e.category, e.model, 
+                       rr.rental_time, rr.return_time,
+                       COUNT(*) as batch_quantity,
+                       'rental' as record_type,
+                       COUNT(*) as total_rental_quantity,
+                       SUM(CASE WHEN rr.status = 'borrowed' THEN 1 ELSE 0 END) as remaining_borrowed
+                FROM rental_records rr
+                JOIN users u ON rr.user_id = u.id
+                JOIN equipment e ON rr.equipment_id = e.id
+                GROUP BY u.id, e.id, rr.rental_time, rr.return_time
+                ORDER BY rr.rental_time DESC
+                LIMIT 50
+            ''')
+        all_rentals = cursor.fetchall()
+        
+        # 取得未歸還的器材
+        if is_postgresql():
+            cursor.execute('''
+                SELECT u.name, u.student_id, e.category, e.model, 
+                       COUNT(*) as total_borrowed_count,
+                       MIN(rr.rental_time) as first_rental_time,
+                       MAX(rr.rental_time) as last_rental_time
+                FROM rental_records rr
+                JOIN users u ON rr.user_id = u.id
+                JOIN equipment e ON rr.equipment_id = e.id
+                WHERE rr.status = 'borrowed'
+                GROUP BY u.id, e.id, u.name, u.student_id, e.category, e.model
+                ORDER BY first_rental_time ASC
+            ''')
+        else:
+            cursor.execute('''
+                SELECT u.name, u.student_id, e.category, e.model, 
+                       COUNT(*) as total_borrowed_count,
+                       MIN(rr.rental_time) as first_rental_time,
+                       MAX(rr.rental_time) as last_rental_time
+                FROM rental_records rr
+                JOIN users u ON rr.user_id = u.id
+                JOIN equipment e ON rr.equipment_id = e.id
+                WHERE rr.status = 'borrowed'
+                GROUP BY u.id, e.id
+                ORDER BY first_rental_time ASC
+            ''')
+        unreturned = cursor.fetchall()
+        
+        # 取得器材庫存狀況
+        cursor.execute('''
+            SELECT e.id, e.category, e.model, e.total_quantity, e.available_quantity,
+                   (e.total_quantity - e.available_quantity) as borrowed_quantity
+            FROM equipment e
+            ORDER BY e.category, e.model
+        ''')
+        equipment_status = cursor.fetchall()
+        
+        conn.close()
+        return render_template('admin.html', 
+                             members=members, 
+                             all_rentals=all_rentals, 
+                             unreturned=unreturned,
+                             equipment_status=equipment_status)
+    except Exception as e:
+        conn.close()
+        flash('載入管理介面失敗，請稍後再試', 'error')
+        print(f"Admin panel error: {e}")
+        return redirect(url_for('dashboard'))
 
-# ... 其他路由省略，修改方式相同 ...
+@app.route('/update_equipment', methods=['POST'])
+@admin_required
+def update_equipment():
+    equipment_id = request.form['equipment_id']
+    new_total_quantity = int(request.form['total_quantity'])
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # 取得目前器材資訊
+        if is_postgresql():
+            cursor.execute('''
+                SELECT total_quantity, available_quantity, model 
+                FROM equipment WHERE id = %s
+            ''', (equipment_id,))
+        else:
+            cursor.execute('''
+                SELECT total_quantity, available_quantity, model 
+                FROM equipment WHERE id = ?
+            ''', (equipment_id,))
+        equipment = cursor.fetchone()
+        
+        if not equipment:
+            flash('器材不存在', 'error')
+            conn.close()
+            return redirect(url_for('admin_panel'))
+        
+        current_total, current_available, model_name = equipment
+        borrowed_quantity = current_total - current_available
+        
+        # 檢查新總數是否小於已借出數量
+        if new_total_quantity < borrowed_quantity:
+            flash(f'錯誤：{model_name} 目前已借出 {borrowed_quantity} 件，總數量不能少於已借出數量', 'error')
+            conn.close()
+            return redirect(url_for('admin_panel'))
+        
+        # 更新總數量和可借數量
+        new_available_quantity = new_total_quantity - borrowed_quantity
+        if is_postgresql():
+            cursor.execute('''
+                UPDATE equipment 
+                SET total_quantity = %s, available_quantity = %s 
+                WHERE id = %s
+            ''', (new_total_quantity, new_available_quantity, equipment_id))
+        else:
+            cursor.execute('''
+                UPDATE equipment 
+                SET total_quantity = ?, available_quantity = ? 
+                WHERE id = ?
+            ''', (new_total_quantity, new_available_quantity, equipment_id))
+        
+        conn.commit()
+        flash(f'成功更新 {model_name} 數量為 {new_total_quantity} 件', 'success')
+    except Exception as e:
+        conn.rollback()
+        flash('更新失敗，請稍後再試', 'error')
+        print(f"Update equipment error: {e}")
+    finally:
+        conn.close()
+    
+    return redirect(url_for('admin_panel'))
 
-# Excel 匯出功能
+@app.route('/add_equipment', methods=['POST'])
+@admin_required
+def add_equipment():
+    category = request.form['category'].strip()
+    model = request.form['model'].strip()
+    total_quantity = int(request.form['total_quantity'])
+    
+    if not category or not model or total_quantity < 1:
+        flash('請填寫完整且正確的器材資訊', 'error')
+        return redirect(url_for('admin_panel'))
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # 檢查是否已存在相同的器材
+        if is_postgresql():
+            cursor.execute('''
+                SELECT id FROM equipment 
+                WHERE category = %s AND model = %s
+            ''', (category, model))
+        else:
+            cursor.execute('''
+                SELECT id FROM equipment 
+                WHERE category = ? AND model = ?
+            ''', (category, model))
+        
+        if cursor.fetchone():
+            flash(f'器材 {category} - {model} 已存在，請使用修改功能調整數量', 'error')
+            conn.close()
+            return redirect(url_for('admin_panel'))
+        
+        # 新增器材
+        if is_postgresql():
+            cursor.execute('''
+                INSERT INTO equipment (category, model, total_quantity, available_quantity) 
+                VALUES (%s, %s, %s, %s)
+            ''', (category, model, total_quantity, total_quantity))
+        else:
+            cursor.execute('''
+                INSERT INTO equipment (category, model, total_quantity, available_quantity) 
+                VALUES (?, ?, ?, ?)
+            ''', (category, model, total_quantity, total_quantity))
+        
+        conn.commit()
+        flash(f'成功新增器材：{category} - {model} ({total_quantity} 件)', 'success')
+    except Exception as e:
+        conn.rollback()
+        flash('新增失敗，請稍後再試', 'error')
+        print(f"Add equipment error: {e}")
+    finally:
+        conn.close()
+    
+    return redirect(url_for('admin_panel'))
+
+@app.route('/delete_equipment/<int:equipment_id>')
+@admin_required
+def delete_equipment(equipment_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # 檢查是否有未歸還的租借記錄
+        if is_postgresql():
+            cursor.execute('''
+                SELECT COUNT(*) FROM rental_records 
+                WHERE equipment_id = %s AND status = 'borrowed'
+            ''', (equipment_id,))
+        else:
+            cursor.execute('''
+                SELECT COUNT(*) FROM rental_records 
+                WHERE equipment_id = ? AND status = 'borrowed'
+            ''', (equipment_id,))
+        
+        borrowed_count = cursor.fetchone()[0]
+        if borrowed_count > 0:
+            if is_postgresql():
+                cursor.execute('SELECT model FROM equipment WHERE id = %s', (equipment_id,))
+            else:
+                cursor.execute('SELECT model FROM equipment WHERE id = ?', (equipment_id,))
+            model_name = cursor.fetchone()[0]
+            flash(f'無法刪除 {model_name}：還有 {borrowed_count} 件未歸還', 'error')
+            conn.close()
+            return redirect(url_for('admin_panel'))
+        
+        # 取得器材名稱用於顯示
+        if is_postgresql():
+            cursor.execute('SELECT category, model FROM equipment WHERE id = %s', (equipment_id,))
+        else:
+            cursor.execute('SELECT category, model FROM equipment WHERE id = ?', (equipment_id,))
+        equipment = cursor.fetchone()
+        
+        if equipment:
+            # 刪除器材
+            if is_postgresql():
+                cursor.execute('DELETE FROM equipment WHERE id = %s', (equipment_id,))
+            else:
+                cursor.execute('DELETE FROM equipment WHERE id = ?', (equipment_id,))
+            conn.commit()
+            flash(f'成功刪除器材：{equipment[0]} - {equipment[1]}', 'success')
+        else:
+            flash('器材不存在', 'error')
+    except Exception as e:
+        conn.rollback()
+        flash('刪除失敗，請稍後再試', 'error')
+        print(f"Delete equipment error: {e}")
+    finally:
+        conn.close()
+    
+    return redirect(url_for('admin_panel'))
+
+@app.route('/delete_user/<int:user_id>')
+@admin_required
+def delete_user(user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # 檢查用戶是否存在且不是管理員
+        if is_postgresql():
+            cursor.execute('SELECT student_id, name FROM users WHERE id = %s AND is_admin = 0', (user_id,))
+        else:
+            cursor.execute('SELECT student_id, name FROM users WHERE id = ? AND is_admin = 0', (user_id,))
+        user = cursor.fetchone()
+        
+        if not user:
+            flash('找不到該用戶或無法刪除管理員帳號', 'error')
+            conn.close()
+            return redirect(url_for('admin_panel'))
+        
+        # 檢查是否有未歸還的器材
+        if is_postgresql():
+            cursor.execute('''
+                SELECT COUNT(*) FROM rental_records 
+                WHERE user_id = %s AND status = 'borrowed'
+            ''', (user_id,))
+        else:
+            cursor.execute('''
+                SELECT COUNT(*) FROM rental_records 
+                WHERE user_id = ? AND status = 'borrowed'
+            ''', (user_id,))
+        
+        unreturned_count = cursor.fetchone()[0]
+        if unreturned_count > 0:
+            flash(f'無法刪除 {user[1]} ({user[0]})：還有 {unreturned_count} 件器材未歸還', 'error')
+            conn.close()
+            return redirect(url_for('admin_panel'))
+        
+        # 刪除用戶（保留租借歷史記錄以供追蹤）
+        if is_postgresql():
+            cursor.execute('DELETE FROM users WHERE id = %s', (user_id,))
+        else:
+            cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
+        
+        conn.commit()
+        flash(f'成功刪除社員：{user[1]} ({user[0]})', 'success')
+    except Exception as e:
+        conn.rollback()
+        flash('刪除失敗，請稍後再試', 'error')
+        print(f"Delete user error: {e}")
+    finally:
+        conn.close()
+    
+    return redirect(url_for('admin_panel'))
+
+@app.route('/reset_user_password', methods=['POST'])
+@admin_required
+def reset_user_password():
+    user_id = request.form['user_id']
+    new_password = request.form['new_password']
+    
+    if not new_password or len(new_password) < 4:
+        flash('新密碼長度至少需要4個字元', 'error')
+        return redirect(url_for('admin_panel'))
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # 檢查用戶是否存在且不是管理員
+        if is_postgresql():
+            cursor.execute('SELECT student_id, name FROM users WHERE id = %s AND is_admin = 0', (user_id,))
+        else:
+            cursor.execute('SELECT student_id, name FROM users WHERE id = ? AND is_admin = 0', (user_id,))
+        user = cursor.fetchone()
+        
+        if not user:
+            flash('找不到該用戶或無法重設管理員密碼', 'error')
+            conn.close()
+            return redirect(url_for('admin_panel'))
+        
+        # 更新密碼
+        hashed_password = generate_password_hash(new_password)
+        if is_postgresql():
+            cursor.execute('UPDATE users SET password = %s WHERE id = %s', (hashed_password, user_id))
+        else:
+            cursor.execute('UPDATE users SET password = ? WHERE id = ?', (hashed_password, user_id))
+        
+        conn.commit()
+        flash(f'成功重設 {user[1]} ({user[0]}) 的密碼', 'success')
+    except Exception as e:
+        conn.rollback()
+        flash('重設密碼失敗，請稍後再試', 'error')
+        print(f"Reset password error: {e}")
+    finally:
+        conn.close()
+    
+    return redirect(url_for('admin_panel'))
+
 @app.route('/export_excel')
 @admin_required
 def export_excel():

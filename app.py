@@ -437,26 +437,39 @@ def get_models(category):
 def borrow_equipment():
     equipment_id = request.form['equipment_id']
     borrow_quantity = int(request.form.get('borrow_quantity', 1))
-    rental_days = request.form.get('rental_days')
+    rental_duration = request.form.get('rental_duration')
+    time_unit = request.form.get('time_unit', 'days')
     
-    # 處理租借天數（必填）
-    if not rental_days or not rental_days.strip():
-        flash('請輸入預計租借天數', 'error')
+    # 處理租借時間（必填）
+    if not rental_duration or not rental_duration.strip():
+        flash('請輸入預計租借時間', 'error')
         return redirect(url_for('dashboard'))
     
     try:
-        rental_days_int = int(rental_days)
-        if rental_days_int <= 0:
-            flash('租借天數必須是正整數', 'error')
+        duration_value = float(rental_duration)
+        if duration_value <= 0:
+            flash('租借時間必須是正數', 'error')
             return redirect(url_for('dashboard'))
     except ValueError:
-        flash('租借天數必須是有效的數字', 'error')
+        flash('租借時間必須是有效的數字', 'error')
         return redirect(url_for('dashboard'))
+    
+    # 計算租借天數（統一轉換為天數儲存）
+    if time_unit == 'hours':
+        rental_days_decimal = duration_value / 24
+        rental_days_int = max(1, round(duration_value / 24))  # 至少1天，四捨五入
+        time_display = f"{duration_value} 小時"
+        if duration_value >= 24:
+            time_display += f" (約 {rental_days_int} 天)"
+    else:  # days
+        rental_days_decimal = duration_value
+        rental_days_int = int(duration_value)
+        time_display = f"{int(duration_value)} 天"
     
     # 計算預計歸還日期
     from datetime import timedelta
     current_date = datetime.now(TW_TZ)
-    expected_return_date = (current_date + timedelta(days=rental_days_int)).strftime('%Y-%m-%d')
+    expected_return_date = (current_date + timedelta(days=rental_days_decimal)).strftime('%Y-%m-%d %H:%M')
     
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -490,12 +503,12 @@ def borrow_equipment():
                 cursor.execute('''
                     INSERT INTO rental_records (user_id, equipment_id, rental_time, expected_return_date, rental_days) 
                     VALUES (%s, %s, %s, %s, %s)
-                ''', (session['user_id'], equipment_id, current_time, expected_return_date, rental_days_int))
+                ''', (session['user_id'], equipment_id, current_time, expected_return_date, rental_days_decimal))
             else:
                 cursor.execute('''
                     INSERT INTO rental_records (user_id, equipment_id, rental_time, expected_return_date, rental_days) 
                     VALUES (?, ?, ?, ?, ?)
-                ''', (session['user_id'], equipment_id, current_time, expected_return_date, rental_days_int))
+                ''', (session['user_id'], equipment_id, current_time, expected_return_date, rental_days_decimal))
         
         # 減少可用數量
         if is_postgresql():
@@ -514,7 +527,7 @@ def borrow_equipment():
         conn.commit()
         
         quantity_text = f'{borrow_quantity} 件' if borrow_quantity > 1 else '1 件'
-        flash(f'成功借用 {equipment[0]} {quantity_text}，預計租借 {rental_days_int} 天', 'success')
+        flash(f'成功借用 {equipment[0]} {quantity_text}，預計租借 {time_display}', 'success')
     except Exception as e:
         conn.rollback()
         flash('借用失敗，請稍後再試', 'error')

@@ -12,7 +12,7 @@
             <div class="card-body">
                 <form id="borrowForm" method="POST" action="{{ url_for('borrow_equipment') }}">
                     <div class="row">
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <label for="category" class="form-label">器材類別</label>
                             <select class="form-select" id="category" name="category" required>
                                 <option value="">請選擇器材類別</option>
@@ -21,23 +21,28 @@
                                 {% endfor %}
                             </select>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <label for="equipment_id" class="form-label">型號</label>
                             <select class="form-select" id="equipment_id" name="equipment_id" required disabled>
                                 <option value="">請先選擇類別</option>
                             </select>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-2">
                             <label for="borrow_quantity" class="form-label">借用數量</label>
                             <select class="form-select" id="borrow_quantity" name="borrow_quantity" required disabled>
                                 <option value="">請先選擇型號</option>
                             </select>
                         </div>
-                    </div>
-                    <div class="mt-3">
-                        <button type="submit" class="btn btn-primary" id="borrowBtn" disabled>
-                            <i class="fas fa-hand-holding"></i> 租借
-                        </button>
+                        <div class="col-md-2">
+                            <label for="rental_days" class="form-label">預計租借天數 <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="rental_days" name="rental_days" 
+                                   min="1" placeholder="請輸入天數" required>
+                        </div>
+                        <div class="col-md-2 d-flex align-items-end">
+                            <button type="submit" class="btn btn-primary w-100" id="borrowBtn" disabled>
+                                <i class="fas fa-hand-holding"></i> 租借
+                            </button>
+                        </div>
                     </div>
                 </form>
             </div>
@@ -54,6 +59,8 @@
                     <li><i class="fas fa-check text-success"></i> 請妥善保管借用器材</li>
                     <li><i class="fas fa-check text-success"></i> 使用後請及時歸還</li>
                     <li><i class="fas fa-check text-success"></i> 如有損壞請立即通知</li>
+                    <li><i class="fas fa-calendar text-info"></i> 必須填寫預計租借天數</li>
+                    <li><i class="fas fa-clock text-warning"></i> 建議按時歸還器材</li>
                 </ul>
             </div>
         </div>
@@ -313,7 +320,19 @@ document.getElementById('equipment_id').addEventListener('change', function() {
 
 document.getElementById('borrow_quantity').addEventListener('change', function() {
     const borrowBtn = document.getElementById('borrowBtn');
-    borrowBtn.disabled = !this.value;
+    const rentalDays = document.getElementById('rental_days');
+    
+    // 檢查數量和租借天數都有填寫才啟用按鈕
+    borrowBtn.disabled = !(this.value && rentalDays.value);
+});
+
+// 新增：租借天數輸入檢查
+document.getElementById('rental_days').addEventListener('input', function() {
+    const borrowBtn = document.getElementById('borrowBtn');
+    const quantitySelect = document.getElementById('borrow_quantity');
+    
+    // 檢查數量和租借天數都有填寫才啟用按鈕
+    borrowBtn.disabled = !(this.value && quantitySelect.value);
 });
 
 // 處理歸還模態對話框

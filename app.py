@@ -88,6 +88,8 @@ def init_db():
                     equipment_id INTEGER NOT NULL,
                     rental_time TIMESTAMP NOT NULL,
                     return_time TIMESTAMP NULL,
+                    expected_return_date DATE NULL,
+                    rental_days INTEGER NULL,
                     status VARCHAR(20) DEFAULT 'borrowed',
                     FOREIGN KEY (user_id) REFERENCES users (id),
                     FOREIGN KEY (equipment_id) REFERENCES equipment (id)
@@ -125,6 +127,8 @@ def init_db():
                     equipment_id INTEGER NOT NULL,
                     rental_time TEXT NOT NULL,
                     return_time TEXT NULL,
+                    expected_return_date TEXT NULL,
+                    rental_days INTEGER NULL,
                     status TEXT DEFAULT 'borrowed',
                     FOREIGN KEY (user_id) REFERENCES users (id),
                     FOREIGN KEY (equipment_id) REFERENCES equipment (id)
@@ -318,7 +322,12 @@ def login():
             session['is_admin'] = user[3]
             
             flash(f'歡迎回來，{user[1]}！', 'success')
-            return redirect(url_for('dashboard'))
+            
+            # 根據用戶角色決定跳轉頁面
+            if user[3]:  # is_admin == 1
+                return redirect(url_for('admin_panel'))
+            else:
+                return redirect(url_for('dashboard'))
         else:
             flash('學號或密碼錯誤', 'error')
     
@@ -399,6 +408,26 @@ def get_models(category):
 def borrow_equipment():
     equipment_id = request.form['equipment_id']
     borrow_quantity = int(request.form.get('borrow_quantity', 1))
+    rental_days = request.form.get('rental_days')
+    
+    # 處理租借天數（必填）
+    if not rental_days or not rental_days.strip():
+        flash('請輸入預計租借天數', 'error')
+        return redirect(url_for('dashboard'))
+    
+    try:
+        rental_days_int = int(rental_days)
+        if rental_days_int <= 0:
+            flash('租借天數必須是正整數', 'error')
+            return redirect(url_for('dashboard'))
+    except ValueError:
+        flash('租借天數必須是有效的數字', 'error')
+        return redirect(url_for('dashboard'))
+    
+    # 計算預計歸還日期
+    from datetime import timedelta
+    current_date = datetime.now(TW_TZ)
+    expected_return_date = (current_date + timedelta(days=rental_days_int)).strftime('%Y-%m-%d')
     
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -430,14 +459,14 @@ def borrow_equipment():
         for i in range(borrow_quantity):
             if is_postgresql():
                 cursor.execute('''
-                    INSERT INTO rental_records (user_id, equipment_id, rental_time) 
-                    VALUES (%s, %s, %s)
-                ''', (session['user_id'], equipment_id, current_time))
+                    INSERT INTO rental_records (user_id, equipment_id, rental_time, expected_return_date, rental_days) 
+                    VALUES (%s, %s, %s, %s, %s)
+                ''', (session['user_id'], equipment_id, current_time, expected_return_date, rental_days_int))
             else:
                 cursor.execute('''
-                    INSERT INTO rental_records (user_id, equipment_id, rental_time) 
-                    VALUES (?, ?, ?)
-                ''', (session['user_id'], equipment_id, current_time))
+                    INSERT INTO rental_records (user_id, equipment_id, rental_time, expected_return_date, rental_days) 
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (session['user_id'], equipment_id, current_time, expected_return_date, rental_days_int))
         
         # 減少可用數量
         if is_postgresql():
@@ -456,7 +485,7 @@ def borrow_equipment():
         conn.commit()
         
         quantity_text = f'{borrow_quantity} 件' if borrow_quantity > 1 else '1 件'
-        flash(f'成功借用 {equipment[0]} {quantity_text}', 'success')
+        flash(f'成功借用 {equipment[0]} {quantity_text}，預計租借 {rental_days_int} 天', 'success')
     except Exception as e:
         conn.rollback()
         flash('借用失敗，請稍後再試', 'error')

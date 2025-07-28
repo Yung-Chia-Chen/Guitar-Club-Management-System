@@ -284,12 +284,31 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-@app.route('/')
-def index():
+@app.route('/',methods=['GET', 'POST'])
+def login():
     ensure_db_initialized()
-    if 'user_id' in session:
-        return redirect(url_for('dashboard'))
-    return render_template('index.html')
+    if request.method == 'POST':
+        student_id = request.form['student_id']
+        password = request.form['password']
+        
+        user = execute_query('SELECT id, name, password, is_admin FROM users WHERE student_id = ?', (student_id,), fetch='one')
+        
+        if user and check_password_hash(user[2], password):
+            session['user_id'] = user[0]
+            session['user_name'] = user[1]
+            session['is_admin'] = user[3]
+            
+            flash(f'歡迎回來，{user[1]}！', 'success')
+            
+            # 根據用戶角色決定跳轉頁面
+            if user[3]:  # is_admin == 1
+                return redirect(url_for('admin_panel'))
+            else:
+                return redirect(url_for('dashboard'))
+        else:
+            flash('學號或密碼錯誤', 'error')
+    
+    return render_template('login.html')
 
 @app.route('/health')
 def health_check():
@@ -480,7 +499,7 @@ def borrow_equipment():
     print(f"Debug - Expected return: {expected_return_datetime}")
     print(f"Debug - Duration: {duration_value} {time_unit}")
     print(f"Debug - Rental days decimal: {rental_days_decimal}")
-    
+
     conn = get_db_connection()
     cursor = conn.cursor()
     

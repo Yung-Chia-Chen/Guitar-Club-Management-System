@@ -47,7 +47,7 @@ def is_postgresql():
     """檢查是否使用 PostgreSQL"""
     return DATABASE_URL.startswith('postgresql://') or DATABASE_URL.startswith('postgres://')
 
-# 資料庫初始化
+# 資料庫初始化和遷移
 def init_db():
     try:
         conn = get_db_connection()
@@ -95,6 +95,24 @@ def init_db():
                     FOREIGN KEY (equipment_id) REFERENCES equipment (id)
                 )
             ''')
+            
+            # 檢查並添加新欄位（遷移邏輯）
+            try:
+                cursor.execute('''
+                    ALTER TABLE rental_records 
+                    ADD COLUMN IF NOT EXISTS expected_return_date DATE
+                ''')
+            except Exception as e:
+                print(f"Column expected_return_date might already exist: {e}")
+            
+            try:
+                cursor.execute('''
+                    ALTER TABLE rental_records 
+                    ADD COLUMN IF NOT EXISTS rental_days INTEGER
+                ''')
+            except Exception as e:
+                print(f"Column rental_days might already exist: {e}")
+                
         else:
             # SQLite 版本（保持原有邏輯）
             cursor.execute('''
@@ -134,6 +152,17 @@ def init_db():
                     FOREIGN KEY (equipment_id) REFERENCES equipment (id)
                 )
             ''')
+            
+            # SQLite 的遷移邏輯
+            try:
+                cursor.execute('ALTER TABLE rental_records ADD COLUMN expected_return_date TEXT')
+            except Exception as e:
+                print(f"Column expected_return_date might already exist: {e}")
+            
+            try:
+                cursor.execute('ALTER TABLE rental_records ADD COLUMN rental_days INTEGER')
+            except Exception as e:
+                print(f"Column rental_days might already exist: {e}")
         
         # 插入預設器材（包含數量）
         equipment_data = [

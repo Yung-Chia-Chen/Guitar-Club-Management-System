@@ -1,30 +1,63 @@
 {% extends "base.html" %}
 
-{% block title %}登入 - 吉他社管理系統{% endblock %}
+{% block title %}吉他社管理系統 - 登入{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-6">
+        <!-- 系統標題 -->
+        <div class="text-center mb-4">
+            <h1 class="display-5"><i class="fas fa-guitar guitar-icon"></i> 吉他社管理系統</h1>
+            <p class="lead text-muted">歡迎使用器材租借管理系統</p>
+        </div>
+        
         <div class="card">
             <div class="card-header">
-                <h4 class="mb-0"><i class="fas fa-sign-in-alt"></i>社員登入</h4>
+                <h4 class="mb-0 text-center"><i class="fas fa-sign-in-alt"></i> 社員登入</h4>
             </div>
             <div class="card-body">
                 <form method="POST">
                     <div class="mb-3">
                         <label for="student_id" class="form-label">學號</label>
-                        <input type="text" class="form-control" id="student_id" name="student_id" required>
+                        <input type="text" class="form-control" id="student_id" name="student_id" 
+                               placeholder="請輸入學號" required>
                     </div>
                     <div class="mb-3">
-                        <label for="password" class="form-label">密碼 (忘記密碼請找社團管理員)</label>
-                        <input type="password" class="form-control" id="password" name="password" required>
+                        <label for="password" class="form-label">密碼</label>
+                        <input type="password" class="form-control" id="password" name="password" 
+                               placeholder="請輸入密碼" required>
+                        <div class="form-text">忘記密碼請聯絡社團管理員</div>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="remember_me" name="remember_me">
+                        <label class="form-check-label" for="remember_me">
+                            記住我 (30天內免登入)
+                        </label>
                     </div>
                     <div class="d-grid gap-2">
-                        <button type="submit" class="btn btn-success">登入</button>
-                        <a href="{{ url_for('register') }}" class="btn btn-link">還沒有帳號？立即註冊</a>
+                        <button type="submit" class="btn btn-success btn-lg">
+                            <i class="fas fa-sign-in-alt"></i> 登入
+                        </button>
                     </div>
                 </form>
+                
+                <hr class="my-4">
+                
+                <div class="text-center">
+                    <p class="mb-2">還沒有帳號？</p>
+                    <a href="{{ url_for('register') }}" class="btn btn-outline-primary">
+                        <i class="fas fa-user-plus"></i> 立即註冊
+                    </a>
+                </div>
             </div>
+        </div>
+        
+        <!-- 系統資訊 -->
+        <div class="text-center mt-4">
+            <small class="text-muted">
+                <i class="fas fa-info-circle"></i> 
+                新用戶請先註冊，管理員請使用 admin 帳號登入
+            </small>
         </div>
     </div>
 </div>

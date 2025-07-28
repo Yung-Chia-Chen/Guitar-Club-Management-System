@@ -264,7 +264,8 @@ def login_required(f):
     def decorated_function(*args, **kwargs):
         ensure_db_initialized()
         if 'user_id' not in session:
-            return redirect(url_for('login'))
+            # 保存當前頁面 URL，登入後可以回到原頁面
+            return redirect(url_for('login', next=request.url))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -284,31 +285,17 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-@app.route('/',methods=['GET', 'POST'])
-def login():
+@app.route('/')
+def index():
     ensure_db_initialized()
-    if request.method == 'POST':
-        student_id = request.form['student_id']
-        password = request.form['password']
-        
-        user = execute_query('SELECT id, name, password, is_admin FROM users WHERE student_id = ?', (student_id,), fetch='one')
-        
-        if user and check_password_hash(user[2], password):
-            session['user_id'] = user[0]
-            session['user_name'] = user[1]
-            session['is_admin'] = user[3]
-            
-            flash(f'歡迎回來，{user[1]}！', 'success')
-            
-            # 根據用戶角色決定跳轉頁面
-            if user[3]:  # is_admin == 1
-                return redirect(url_for('admin_panel'))
-            else:
-                return redirect(url_for('dashboard'))
+    # 如果已經登入，直接跳轉到對應頁面
+    if 'user_id' in session:
+        if session.get('is_admin'):
+            return redirect(url_for('admin_panel'))
         else:
-            flash('學號或密碼錯誤', 'error')
-    
-    return render_template('login.html')
+            return redirect(url_for('dashboard'))
+    # 未登入則顯示登入頁面
+    return redirect(url_for('login'))
 
 @app.route('/health')
 def health_check():
@@ -355,21 +342,45 @@ def register():
     
     return render_template('register.html')
 
+from datetime import timedelta
+
+# 設定 session 過期時間
+app.permanent_session_lifetime = timedelta(days=30)  # 7天後過期
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     ensure_db_initialized()
+    
+    # 如果已經登入，重定向到對應頁面
+    if 'user_id' in session:
+        if session.get('is_admin'):
+            return redirect(url_for('admin_panel'))
+        else:
+            return redirect(url_for('dashboard'))
+    
     if request.method == 'POST':
         student_id = request.form['student_id']
         password = request.form['password']
+        remember_me = request.form.get('remember_me')  # 記住我選項
         
         user = execute_query('SELECT id, name, password, is_admin FROM users WHERE student_id = ?', (student_id,), fetch='one')
         
         if user and check_password_hash(user[2], password):
+            # 設定 session
             session['user_id'] = user[0]
             session['user_name'] = user[1]
             session['is_admin'] = user[3]
             
+            # 如果勾選記住我，設定為永久 session
+            if remember_me:
+                session.permanent = True
+            
             flash(f'歡迎回來，{user[1]}！', 'success')
+            
+            # 檢查是否有重定向參數（例如從需要登入的頁面跳轉過來）
+            next_page = request.args.get('next')
+            if next_page:
+                return redirect(next_page)
             
             # 根據用戶角色決定跳轉頁面
             if user[3]:  # is_admin == 1
@@ -381,11 +392,13 @@ def login():
     
     return render_template('login.html')
 
+
 @app.route('/logout')
 def logout():
+    user_name = session.get('user_name', '用戶')
     session.clear()
-    flash('已登出', 'info')
-    return redirect(url_for('index'))
+    flash(f'{user_name} 已安全登出', 'info')
+    return redirect(url_for('login')) 
 
 @app.route('/dashboard')
 @login_required
@@ -499,7 +512,7 @@ def borrow_equipment():
     print(f"Debug - Expected return: {expected_return_datetime}")
     print(f"Debug - Duration: {duration_value} {time_unit}")
     print(f"Debug - Rental days decimal: {rental_days_decimal}")
-
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     

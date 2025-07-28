@@ -1255,6 +1255,67 @@ def export_excel():
         print(f"Export error: {e}")
         return redirect(url_for('admin_panel'))
 
+@app.route('/export_excel')
+@admin_required
+def export_excel():
+    try:
+        if is_postgresql():
+            # 使用 pandas 直接從 PostgreSQL 讀取
+            import psycopg2
+            conn = psycopg2.connect(DATABASE_URL.replace('postgres://', 'postgresql://', 1))
+            
+            query = '''
+                SELECT u.name as "借用人", u.student_id as "學號", 
+                       e.category as "器材類型", e.model as "型號",
+                       rr.rental_time as "租借時間", rr.return_time as "歸還時間",
+                       CASE WHEN rr.status = 'returned' THEN '已歸還' ELSE '未歸還' END as "狀態"
+                FROM rental_records rr
+                JOIN users u ON rr.user_id = u.id
+                JOIN equipment e ON rr.equipment_id = e.id
+                ORDER BY rr.rental_time DESC
+            '''
+            
+            df = pd.read_sql_query(query, conn)
+            conn.close()
+        else:
+            # SQLite 版本
+            import sqlite3
+            conn = sqlite3.connect(DATABASE_URL.replace('sqlite:///', ''))
+            
+            query = '''
+                SELECT u.name as '借用人', u.student_id as '學號', 
+                       e.category as '器材類型', e.model as '型號',
+                       rr.rental_time as '租借時間', rr.return_time as '歸還時間',
+                       CASE WHEN rr.status = 'returned' THEN '已歸還' ELSE '未歸還' END as '狀態'
+                FROM rental_records rr
+                JOIN users u ON rr.user_id = u.id
+                JOIN equipment e ON rr.equipment_id = e.id
+                ORDER BY rr.rental_time DESC
+            '''
+            
+            df = pd.read_sql_query(query, conn)
+            conn.close()
+        
+        # 創建記憶體中的 Excel 檔案
+        output = io.BytesIO()
+        filename = f'guitar_club_rental_records_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='租借記錄')
+        
+        output.seek(0)
+        
+        return send_file(
+            output,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        flash('匯出失敗，請稍後再試', 'error')
+        print(f"Export error: {e}")
+        return redirect(url_for('admin_panel'))
+
 # 在程式啟動時初始化資料庫
 try:
     with app.app_context():

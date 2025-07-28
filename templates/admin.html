@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "admin_base.html" %}
 
 {% block title %}管理介面 - 吉他社管理系統{% endblock %}
 
@@ -215,7 +215,8 @@
                                         <th>型號</th>
                                         <th>未歸還數量</th>
                                         <th>最早租借時間</th>
-                                        <th>最長借用天數</th>
+                                        <th>預計歸還日期</th>
+                                        <th>狀態</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -230,7 +231,23 @@
                                         </td>
                                         <td>{{ item[5] }}</td>
                                         <td>
-                                            <span class="badge bg-info text-dark days-badge" data-rental-time="{{ item[5] }}">計算中...</span>
+                                            {% if item[8] %}
+                                                {{ item[8] }}
+                                                {% if item[7] %}
+                                                    <small class="text-muted d-block">({{ item[7] }} 天)</small>
+                                                {% endif %}
+                                            {% else %}
+                                                <span class="text-muted">未設定</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if item[8] %}
+                                                <span class="badge overdue-badge" 
+                                                      data-expected-date="{{ item[8] }}" 
+                                                      data-rental-time="{{ item[5] }}">計算中...</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">無預期日期</span>
+                                            {% endif %}
                                         </td>
                                     </tr>
                                     {% endfor %}
@@ -499,8 +516,47 @@
 </div>
 
 <script>
-// 計算借用天數
+// 計算借用天數和逾期狀態
 document.addEventListener('DOMContentLoaded', function() {
+    // 處理逾期狀態計算
+    const overdueBadges = document.querySelectorAll('.overdue-badge');
+    overdueBadges.forEach(badge => {
+        const expectedDate = badge.getAttribute('data-expected-date');
+        const rentalTime = badge.getAttribute('data-rental-time');
+        
+        if (expectedDate) {
+            const today = new Date();
+            const expected = new Date(expectedDate);
+            const rental = new Date(rentalTime);
+            
+            // 計算已借用天數
+            const borrowedDays = Math.ceil((today - rental) / (1000 * 60 * 60 * 24));
+            
+            // 判斷是否逾期
+            if (today > expected) {
+                const overdueDays = Math.ceil((today - expected) / (1000 * 60 * 60 * 24));
+                badge.className = 'badge bg-danger';
+                badge.textContent = `已逾期 ${overdueDays} 天`;
+            } else if (today.toDateString() === expected.toDateString()) {
+                badge.className = 'badge bg-warning text-dark';
+                badge.textContent = '今日到期';
+            } else {
+                const remainingDays = Math.ceil((expected - today) / (1000 * 60 * 60 * 24));
+                if (remainingDays <= 1) {
+                    badge.className = 'badge bg-warning text-dark';
+                    badge.textContent = '明日到期';
+                } else if (remainingDays <= 3) {
+                    badge.className = 'badge bg-warning text-dark';
+                    badge.textContent = `${remainingDays} 天後到期`;
+                } else {
+                    badge.className = 'badge bg-success';
+                    badge.textContent = `${remainingDays} 天後到期`;
+                }
+            }
+        }
+    });
+    
+    // 原有的借用天數計算邏輯（保留舊功能的兼容性）
     const daysBadges = document.querySelectorAll('.days-badge');
     daysBadges.forEach(badge => {
         const rentalTime = badge.getAttribute('data-rental-time');

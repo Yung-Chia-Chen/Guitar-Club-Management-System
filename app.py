@@ -790,13 +790,15 @@ def admin_panel():
             ''')
         all_rentals = cursor.fetchall()
         
-        # 取得未歸還的器材
+        # 取得未歸還的器材（加入租借天數和預計歸還日期）
         if is_postgresql():
             cursor.execute('''
                 SELECT u.name, u.student_id, e.category, e.model, 
                        COUNT(*) as total_borrowed_count,
                        MIN(rr.rental_time) as first_rental_time,
-                       MAX(rr.rental_time) as last_rental_time
+                       MAX(rr.rental_time) as last_rental_time,
+                       MAX(rr.rental_days) as rental_days,
+                       MAX(rr.expected_return_date) as expected_return_date
                 FROM rental_records rr
                 JOIN users u ON rr.user_id = u.id
                 JOIN equipment e ON rr.equipment_id = e.id
@@ -809,7 +811,9 @@ def admin_panel():
                 SELECT u.name, u.student_id, e.category, e.model, 
                        COUNT(*) as total_borrowed_count,
                        MIN(rr.rental_time) as first_rental_time,
-                       MAX(rr.rental_time) as last_rental_time
+                       MAX(rr.rental_time) as last_rental_time,
+                       MAX(rr.rental_days) as rental_days,
+                       MAX(rr.expected_return_date) as expected_return_date
                 FROM rental_records rr
                 JOIN users u ON rr.user_id = u.id
                 JOIN equipment e ON rr.equipment_id = e.id
@@ -1112,7 +1116,85 @@ def reset_user_password():
     
     return redirect(url_for('admin_panel'))
 
-@app.route('/export_excel')
+@app.route('/migrate_db')
+@admin_required
+def migrate_db():
+    """手動資料庫遷移 - 添加新欄位"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        migration_success = []
+        migration_errors = []
+        
+        if is_postgresql():
+            # PostgreSQL 遷移
+            try:
+                cursor.execute('''
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'rental_records' AND column_name = 'expected_return_date'
+                ''')
+                if not cursor.fetchone():
+                    cursor.execute('ALTER TABLE rental_records ADD COLUMN expected_return_date DATE')
+                    migration_success.append('Added expected_return_date column')
+                else:
+                    migration_success.append('expected_return_date column already exists')
+            except Exception as e:
+                migration_errors.append(f'expected_return_date: {e}')
+            
+            try:
+                cursor.execute('''
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'rental_records' AND column_name = 'rental_days'
+                ''')
+                if not cursor.fetchone():
+                    cursor.execute('ALTER TABLE rental_records ADD COLUMN rental_days INTEGER')
+                    migration_success.append('Added rental_days column')
+                else:
+                    migration_success.append('rental_days column already exists')
+            except Exception as e:
+                migration_errors.append(f'rental_days: {e}')
+        else:
+            # SQLite 遷移
+            try:
+                cursor.execute("PRAGMA table_info(rental_records)")
+                columns = [row[1] for row in cursor.fetchall()]
+                
+                if 'expected_return_date' not in columns:
+                    cursor.execute('ALTER TABLE rental_records ADD COLUMN expected_return_date TEXT')
+                    migration_success.append('Added expected_return_date column')
+                else:
+                    migration_success.append('expected_return_date column already exists')
+                    
+                if 'rental_days' not in columns:
+                    cursor.execute('ALTER TABLE rental_records ADD COLUMN rental_days INTEGER')
+                    migration_success.append('Added rental_days column')
+                else:
+                    migration_success.append('rental_days column already exists')
+            except Exception as e:
+                migration_errors.append(f'SQLite migration: {e}')
+        
+        conn.commit()
+        conn.close()
+        
+        # 顯示遷移結果
+        if migration_success:
+            for msg in migration_success:
+                flash(f'✅ {msg}', 'success')
+        if migration_errors:
+            for msg in migration_errors:
+                flash(f'❌ {msg}', 'error')
+                
+        if not migration_errors:
+            flash('🎉 資料庫遷移完成！現在可以正常使用租借天數功能了', 'success')
+        
+    except Exception as e:
+        flash(f'遷移失敗：{e}', 'error')
+        print(f"Migration error: {e}")
+    
+    return redirect(url_for('admin_panel'))
 @admin_required
 def export_excel():
     try:

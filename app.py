@@ -454,22 +454,32 @@ def borrow_equipment():
         flash('租借時間必須是有效的數字', 'error')
         return redirect(url_for('dashboard'))
     
-    # 計算租借天數（統一轉換為天數儲存）
+    from datetime import timedelta
+    import pytz
+
+    # 使用台灣時區進行計算
+    current_datetime = datetime.now(TW_TZ)
+
     if time_unit == 'hours':
+        expected_return_datetime = current_datetime + timedelta(hours=duration_value)
         rental_days_decimal = duration_value / 24
         rental_days_int = max(1, round(duration_value / 24))  # 至少1天，四捨五入
         time_display = f"{duration_value} 小時"
         if duration_value >= 24:
             time_display += f" (約 {rental_days_int} 天)"
     else:  # days
+        expected_return_datetime = current_datetime + timedelta(days=duration_value)
         rental_days_decimal = duration_value
         rental_days_int = int(duration_value)
         time_display = f"{int(duration_value)} 天"
-    
-    # 計算預計歸還日期
-    from datetime import timedelta
-    current_date = datetime.now(TW_TZ)
-    expected_return_date = (current_date + timedelta(days=rental_days_decimal)).strftime('%Y-%m-%d %H:%M')
+
+    # 格式化為字串，保持台灣時區
+    expected_return_date = expected_return_datetime.strftime('%Y-%m-%d %H:%M')
+
+    print(f"Debug - Current time: {current_datetime}")
+    print(f"Debug - Expected return: {expected_return_datetime}")
+    print(f"Debug - Duration: {duration_value} {time_unit}")
+    print(f"Debug - Rental days decimal: {rental_days_decimal}")
     
     conn = get_db_connection()
     cursor = conn.cursor()

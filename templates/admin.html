@@ -517,6 +517,7 @@
 
 <script>
 // 計算借用天數和逾期狀態
+// 計算借用天數和逾期狀態
 document.addEventListener('DOMContentLoaded', function() {
     // 處理逾期狀態計算
     const overdueBadges = document.querySelectorAll('.overdue-badge');
@@ -525,24 +526,63 @@ document.addEventListener('DOMContentLoaded', function() {
         const rentalTime = badge.getAttribute('data-rental-time');
         
         if (expectedDate) {
-            const today = new Date();
-            const expected = new Date(expectedDate);
-            const rental = new Date(rentalTime);
+            // 使用更精確的時間解析
+            const now = new Date();
             
-            // 計算已借用天數
-            const borrowedDays = Math.ceil((today - rental) / (1000 * 60 * 60 * 24));
-            
-            // 判斷是否逾期
-            if (today > expected) {
-                const overdueDays = Math.ceil((today - expected) / (1000 * 60 * 60 * 24));
-                badge.className = 'badge bg-danger';
-                badge.textContent = `已逾期 ${overdueDays} 天`;
-            } else if (today.toDateString() === expected.toDateString()) {
-                badge.className = 'badge bg-warning text-dark';
-                badge.textContent = '今日到期';
+            // 解析預計歸還時間（格式：YYYY-MM-DD HH:MM）
+            let expected;
+            if (expectedDate.includes(' ')) {
+                // 包含時間的格式
+                expected = new Date(expectedDate.replace(' ', 'T') + ':00+08:00'); // 明確指定台灣時區
             } else {
-                const remainingDays = Math.ceil((expected - today) / (1000 * 60 * 60 * 24));
-                if (remainingDays <= 1) {
+                // 只有日期的格式，設為當天23:59
+                expected = new Date(expectedDate + 'T23:59:59+08:00');
+            }
+            
+            // 解析租借時間
+            const rental = new Date(rentalTime.replace(' ', 'T') + '+08:00');
+            
+            // 計算已借用時間（以小時為單位，更精確）
+            const borrowedHours = Math.floor((now - rental) / (1000 * 60 * 60));
+            const borrowedDays = Math.floor(borrowedHours / 24);
+            
+            console.log('Debug info:', {
+                now: now.toISOString(),
+                expected: expected.toISOString(), 
+                rental: rental.toISOString(),
+                borrowedHours: borrowedHours,
+                timeDiff: now - expected
+            });
+            
+            // 判斷是否逾期（增加容錯時間，避免時差問題）
+            const timeDiffMinutes = (now - expected) / (1000 * 60);
+            
+            if (timeDiffMinutes > 30) { // 超過30分鐘才算逾期
+                const overdueDays = Math.ceil((now - expected) / (1000 * 60 * 60 * 24));
+                const overdueHours = Math.ceil((now - expected) / (1000 * 60 * 60));
+                
+                badge.className = 'badge bg-danger';
+                if (overdueHours < 24) {
+                    badge.textContent = `已逾期 ${overdueHours} 小時`;
+                } else {
+                    badge.textContent = `已逾期 ${overdueDays} 天`;
+                }
+            } else if (timeDiffMinutes > -30) { // 30分鐘內到期
+                badge.className = 'badge bg-warning text-dark';
+                badge.textContent = '即將到期';
+            } else {
+                // 計算剩餘時間
+                const remainingMinutes = Math.floor((expected - now) / (1000 * 60));
+                const remainingHours = Math.floor(remainingMinutes / 60);
+                const remainingDays = Math.floor(remainingHours / 24);
+                
+                if (remainingHours < 1) {
+                    badge.className = 'badge bg-warning text-dark';
+                    badge.textContent = `${remainingMinutes} 分鐘後到期`;
+                } else if (remainingHours < 24) {
+                    badge.className = 'badge bg-warning text-dark';
+                    badge.textContent = `${remainingHours} 小時後到期`;
+                } else if (remainingDays <= 1) {
                     badge.className = 'badge bg-warning text-dark';
                     badge.textContent = '明日到期';
                 } else if (remainingDays <= 3) {
@@ -556,12 +596,12 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    // 原有的借用天數計算邏輯（保留舊功能的兼容性）
+    // 保留原有的借用天數計算邏輯（用於其他功能）
     const daysBadges = document.querySelectorAll('.days-badge');
     daysBadges.forEach(badge => {
         const rentalTime = badge.getAttribute('data-rental-time');
         if (rentalTime) {
-            const rentalDate = new Date(rentalTime);
+            const rentalDate = new Date(rentalTime.replace(' ', 'T') + '+08:00');
             const now = new Date();
             const diffTime = Math.abs(now - rentalDate);
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));

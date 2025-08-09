@@ -194,18 +194,18 @@ def init_db():
         # 創建預設管理員帳號
         cursor.execute('SELECT COUNT(*) FROM users WHERE is_admin = 1')
         if cursor.fetchone()[0] == 0:
-            admin_password = generate_password_hash('admin123')
+            admin_password = generate_password_hash('qwert')
             admin_created_time = get_taiwan_time()
             if is_postgresql():
                 cursor.execute('''
                     INSERT INTO users (student_id, name, class_name, club_role, password, is_admin, created_at) 
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ''', ('admin', '系統管理員', '管理組', '系統管理員', admin_password, 1, admin_created_time))
+                ''', ('fcuguitar', '系統管理員', '管理組', '系統管理員', admin_password, 1, admin_created_time))
             else:
                 cursor.execute('''
                     INSERT INTO users (student_id, name, class_name, club_role, password, is_admin, created_at) 
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', ('admin', '系統管理員', '管理組', '系統管理員', admin_password, 1, admin_created_time))
+                ''', ('fcuguitar', '系統管理員', '管理組', '系統管理員', admin_password, 1, admin_created_time))
         
         conn.commit()
         conn.close()

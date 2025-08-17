@@ -10,6 +10,9 @@ import pytz
 import io
 from urllib.parse import urlparse
 
+# 新增：匯入圖片處理模組
+from image_utils import process_and_upload_image, delete_equipment_images
+
 app = Flask(__name__)
 
 # 生產環境配置
@@ -69,14 +72,16 @@ def init_db():
                 )
             ''')
             
-            # 創建器材表
+            # 創建器材表 - 新增圖片欄位
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS equipment (
                     id SERIAL PRIMARY KEY,
                     category VARCHAR(100) NOT NULL,
                     model VARCHAR(200) NOT NULL,
                     total_quantity INTEGER NOT NULL DEFAULT 1,
-                    available_quantity INTEGER NOT NULL DEFAULT 1
+                    available_quantity INTEGER NOT NULL DEFAULT 1,
+                    image_full_url TEXT,
+                    image_thumb_url TEXT
                 )
             ''')
             
@@ -96,6 +101,23 @@ def init_db():
                 )
             ''')
             
+            # 檢查並添加圖片欄位（遷移邏輯）
+            try:
+                cursor.execute('''
+                    ALTER TABLE equipment 
+                    ADD COLUMN IF NOT EXISTS image_full_url TEXT
+                ''')
+            except Exception as e:
+                print(f"Column image_full_url might already exist: {e}")
+            
+            try:
+                cursor.execute('''
+                    ALTER TABLE equipment 
+                    ADD COLUMN IF NOT EXISTS image_thumb_url TEXT
+                ''')
+            except Exception as e:
+                print(f"Column image_thumb_url might already exist: {e}")
+                
             # 檢查並添加新欄位（遷移邏輯）
             try:
                 cursor.execute('''
@@ -134,7 +156,9 @@ def init_db():
                     category TEXT NOT NULL,
                     model TEXT NOT NULL,
                     total_quantity INTEGER NOT NULL DEFAULT 1,
-                    available_quantity INTEGER NOT NULL DEFAULT 1
+                    available_quantity INTEGER NOT NULL DEFAULT 1,
+                    image_full_url TEXT,
+                    image_thumb_url TEXT
                 )
             ''')
             
@@ -153,7 +177,18 @@ def init_db():
                 )
             ''')
             
-            # SQLite 的遷移邏輯
+            # SQLite 的圖片欄位遷移邏輯
+            try:
+                cursor.execute('ALTER TABLE equipment ADD COLUMN image_full_url TEXT')
+            except Exception as e:
+                print(f"Column image_full_url might already exist: {e}")
+            
+            try:
+                cursor.execute('ALTER TABLE equipment ADD COLUMN image_thumb_url TEXT')
+            except Exception as e:
+                print(f"Column image_thumb_url might already exist: {e}")
+            
+            # SQLite 的其他遷移邏輯
             try:
                 cursor.execute('ALTER TABLE rental_records ADD COLUMN expected_return_date TEXT')
             except Exception as e:
@@ -450,8 +485,9 @@ def dashboard():
 @app.route('/get_models/<category>')
 @login_required
 def get_models(category):
+    # 修改查詢以包含圖片 URL
     models = execute_query('''
-        SELECT id, model, available_quantity, total_quantity 
+        SELECT id, model, available_quantity, total_quantity, image_thumb_url
         FROM equipment 
         WHERE category = ? AND available_quantity > 0
     ''', (category,), fetch='all')
@@ -460,7 +496,8 @@ def get_models(category):
         {
             'id': model[0], 
             'name': f"{model[1]} (可借: {model[2]}/{model[3]})",
-            'available': model[2]
+            'available': model[2],
+            'thumb_url': model[4]  # 新增縮圖 URL
         } for model in models
     ]}
 
@@ -878,10 +915,11 @@ def admin_panel():
             ''')
         unreturned = cursor.fetchall()
         
-        # 取得器材庫存狀況
+        # 取得器材庫存狀況（包含圖片 URL）
         cursor.execute('''
             SELECT e.id, e.category, e.model, e.total_quantity, e.available_quantity,
-                   (e.total_quantity - e.available_quantity) as borrowed_quantity
+                   (e.total_quantity - e.available_quantity) as borrowed_quantity,
+                   e.image_full_url, e.image_thumb_url
             FROM equipment e
             ORDER BY e.category, e.model
         ''')
@@ -904,6 +942,9 @@ def admin_panel():
 def update_equipment():
     equipment_id = request.form['equipment_id']
     new_total_quantity = int(request.form['total_quantity'])
+    
+    # 處理圖片上傳（如果有的話）
+    image_file = request.files.get('equipment_image')
     
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -936,20 +977,50 @@ def update_equipment():
             conn.close()
             return redirect(url_for('admin_panel'))
         
+        # 處理圖片上傳
+        full_url, thumb_url = None, None
+        if image_file and image_file.filename:
+            try:
+                full_url, thumb_url = process_and_upload_image(image_file, equipment_id)
+                if not full_url or not thumb_url:
+                    flash('圖片上傳失敗，但數量更新成功', 'warning')
+            except Exception as e:
+                print(f"Image upload error: {e}")
+                flash('圖片上傳失敗，但數量更新成功', 'warning')
+        
         # 更新總數量和可借數量
         new_available_quantity = new_total_quantity - borrowed_quantity
-        if is_postgresql():
-            cursor.execute('''
-                UPDATE equipment 
-                SET total_quantity = %s, available_quantity = %s 
-                WHERE id = %s
-            ''', (new_total_quantity, new_available_quantity, equipment_id))
+        
+        if full_url and thumb_url:
+            # 有新圖片，更新圖片 URL
+            if is_postgresql():
+                cursor.execute('''
+                    UPDATE equipment 
+                    SET total_quantity = %s, available_quantity = %s, 
+                        image_full_url = %s, image_thumb_url = %s
+                    WHERE id = %s
+                ''', (new_total_quantity, new_available_quantity, full_url, thumb_url, equipment_id))
+            else:
+                cursor.execute('''
+                    UPDATE equipment 
+                    SET total_quantity = ?, available_quantity = ?, 
+                        image_full_url = ?, image_thumb_url = ?
+                    WHERE id = ?
+                ''', (new_total_quantity, new_available_quantity, full_url, thumb_url, equipment_id))
         else:
-            cursor.execute('''
-                UPDATE equipment 
-                SET total_quantity = ?, available_quantity = ? 
-                WHERE id = ?
-            ''', (new_total_quantity, new_available_quantity, equipment_id))
+            # 沒有新圖片，只更新數量
+            if is_postgresql():
+                cursor.execute('''
+                    UPDATE equipment 
+                    SET total_quantity = %s, available_quantity = %s 
+                    WHERE id = %s
+                ''', (new_total_quantity, new_available_quantity, equipment_id))
+            else:
+                cursor.execute('''
+                    UPDATE equipment 
+                    SET total_quantity = ?, available_quantity = ? 
+                    WHERE id = ?
+                ''', (new_total_quantity, new_available_quantity, equipment_id))
         
         conn.commit()
         flash(f'成功更新 {model_name} 數量為 {new_total_quantity} 件', 'success')
@@ -968,6 +1039,7 @@ def add_equipment():
     category = request.form['category'].strip()
     model = request.form['model'].strip()
     total_quantity = int(request.form['total_quantity'])
+    image_file = request.files.get('equipment_image')
     
     if not category or not model or total_quantity < 1:
         flash('請填寫完整且正確的器材資訊', 'error')
@@ -998,16 +1070,46 @@ def add_equipment():
         if is_postgresql():
             cursor.execute('''
                 INSERT INTO equipment (category, model, total_quantity, available_quantity) 
-                VALUES (%s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s) RETURNING id
             ''', (category, model, total_quantity, total_quantity))
+            equipment_id = cursor.fetchone()[0]
         else:
             cursor.execute('''
                 INSERT INTO equipment (category, model, total_quantity, available_quantity) 
                 VALUES (?, ?, ?, ?)
             ''', (category, model, total_quantity, total_quantity))
+            equipment_id = cursor.lastrowid
         
         conn.commit()
-        flash(f'成功新增器材：{category} - {model} ({total_quantity} 件)', 'success')
+        
+        # 處理圖片上傳（如果有的話）
+        if image_file and image_file.filename:
+            try:
+                full_url, thumb_url = process_and_upload_image(image_file, equipment_id)
+                if full_url and thumb_url:
+                    # 更新器材的圖片 URL
+                    if is_postgresql():
+                        cursor.execute('''
+                            UPDATE equipment 
+                            SET image_full_url = %s, image_thumb_url = %s 
+                            WHERE id = %s
+                        ''', (full_url, thumb_url, equipment_id))
+                    else:
+                        cursor.execute('''
+                            UPDATE equipment 
+                            SET image_full_url = ?, image_thumb_url = ? 
+                            WHERE id = ?
+                        ''', (full_url, thumb_url, equipment_id))
+                    conn.commit()
+                    flash(f'成功新增器材：{category} - {model} ({total_quantity} 件) 並上傳圖片', 'success')
+                else:
+                    flash(f'成功新增器材：{category} - {model} ({total_quantity} 件)，但圖片上傳失敗', 'warning')
+            except Exception as e:
+                print(f"Image upload error: {e}")
+                flash(f'成功新增器材：{category} - {model} ({total_quantity} 件)，但圖片上傳失敗', 'warning')
+        else:
+            flash(f'成功新增器材：{category} - {model} ({total_quantity} 件)', 'success')
+        
     except Exception as e:
         conn.rollback()
         flash('新增失敗，請稍後再試', 'error')
@@ -1055,6 +1157,12 @@ def delete_equipment(equipment_id):
         equipment = cursor.fetchone()
         
         if equipment:
+            # 刪除器材圖片
+            try:
+                delete_equipment_images(equipment_id)
+            except Exception as e:
+                print(f"Delete image error: {e}")
+            
             # 刪除器材
             if is_postgresql():
                 cursor.execute('DELETE FROM equipment WHERE id = %s', (equipment_id,))
@@ -1211,6 +1319,36 @@ def migrate_db():
                     migration_success.append('rental_days column already exists')
             except Exception as e:
                 migration_errors.append(f'rental_days: {e}')
+            
+            # 新增：圖片欄位遷移
+            try:
+                cursor.execute('''
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'equipment' AND column_name = 'image_full_url'
+                ''')
+                if not cursor.fetchone():
+                    cursor.execute('ALTER TABLE equipment ADD COLUMN image_full_url TEXT')
+                    migration_success.append('Added image_full_url column')
+                else:
+                    migration_success.append('image_full_url column already exists')
+            except Exception as e:
+                migration_errors.append(f'image_full_url: {e}')
+            
+            try:
+                cursor.execute('''
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'equipment' AND column_name = 'image_thumb_url'
+                ''')
+                if not cursor.fetchone():
+                    cursor.execute('ALTER TABLE equipment ADD COLUMN image_thumb_url TEXT')
+                    migration_success.append('Added image_thumb_url column')
+                else:
+                    migration_success.append('image_thumb_url column already exists')
+            except Exception as e:
+                migration_errors.append(f'image_thumb_url: {e}')
+                
         else:
             # SQLite 遷移
             try:
@@ -1230,6 +1368,25 @@ def migrate_db():
                     migration_success.append('rental_days column already exists')
             except Exception as e:
                 migration_errors.append(f'SQLite migration: {e}')
+            
+            # SQLite 圖片欄位遷移
+            try:
+                cursor.execute("PRAGMA table_info(equipment)")
+                equipment_columns = [row[1] for row in cursor.fetchall()]
+                
+                if 'image_full_url' not in equipment_columns:
+                    cursor.execute('ALTER TABLE equipment ADD COLUMN image_full_url TEXT')
+                    migration_success.append('Added image_full_url column')
+                else:
+                    migration_success.append('image_full_url column already exists')
+                    
+                if 'image_thumb_url' not in equipment_columns:
+                    cursor.execute('ALTER TABLE equipment ADD COLUMN image_thumb_url TEXT')
+                    migration_success.append('Added image_thumb_url column')
+                else:
+                    migration_success.append('image_thumb_url column already exists')
+            except Exception as e:
+                migration_errors.append(f'SQLite image columns migration: {e}')
         
         conn.commit()
         conn.close()
@@ -1243,72 +1400,13 @@ def migrate_db():
                 flash(f'❌ {msg}', 'error')
                 
         if not migration_errors:
-            flash('🎉 資料庫遷移完成！現在可以正常使用租借天數功能了', 'success')
+            flash('🎉 資料庫遷移完成！現在可以正常使用圖片和租借天數功能了', 'success')
         
     except Exception as e:
         flash(f'遷移失敗：{e}', 'error')
         print(f"Migration error: {e}")
     
     return redirect(url_for('admin_panel'))
-@admin_required
-def export_excel():
-    try:
-        if is_postgresql():
-            # 使用 pandas 直接從 PostgreSQL 讀取
-            import psycopg2
-            conn = psycopg2.connect(DATABASE_URL.replace('postgres://', 'postgresql://', 1))
-            
-            query = '''
-                SELECT u.name as "借用人", u.student_id as "學號", 
-                       e.category as "器材類型", e.model as "型號",
-                       rr.rental_time as "租借時間", rr.return_time as "歸還時間",
-                       CASE WHEN rr.status = 'returned' THEN '已歸還' ELSE '未歸還' END as "狀態"
-                FROM rental_records rr
-                JOIN users u ON rr.user_id = u.id
-                JOIN equipment e ON rr.equipment_id = e.id
-                ORDER BY rr.rental_time DESC
-            '''
-            
-            df = pd.read_sql_query(query, conn)
-            conn.close()
-        else:
-            # SQLite 版本
-            import sqlite3
-            conn = sqlite3.connect(DATABASE_URL.replace('sqlite:///', ''))
-            
-            query = '''
-                SELECT u.name as '借用人', u.student_id as '學號', 
-                       e.category as '器材類型', e.model as '型號',
-                       rr.rental_time as '租借時間', rr.return_time as '歸還時間',
-                       CASE WHEN rr.status = 'returned' THEN '已歸還' ELSE '未歸還' END as '狀態'
-                FROM rental_records rr
-                JOIN users u ON rr.user_id = u.id
-                JOIN equipment e ON rr.equipment_id = e.id
-                ORDER BY rr.rental_time DESC
-            '''
-            
-            df = pd.read_sql_query(query, conn)
-            conn.close()
-        
-        # 創建記憶體中的 Excel 檔案
-        output = io.BytesIO()
-        filename = f'guitar_club_rental_records_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
-        
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='租借記錄')
-        
-        output.seek(0)
-        
-        return send_file(
-            output,
-            as_attachment=True,
-            download_name=filename,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-    except Exception as e:
-        flash('匯出失敗，請稍後再試', 'error')
-        print(f"Export error: {e}")
-        return redirect(url_for('admin_panel'))
 
 @app.route('/export_excel')
 @admin_required

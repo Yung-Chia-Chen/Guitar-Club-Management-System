@@ -3,6 +3,126 @@
 {% block title %}主頁 - 吉他社管理系統{% endblock %}
 
 {% block content %}
+<style>
+/* 下拉選單中的器材圖片樣式 */
+.equipment-option {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #eee;
+}
+
+.equipment-option:hover {
+    background-color: #f8f9fa;
+}
+
+.equipment-option:last-child {
+    border-bottom: none;
+}
+
+.equipment-thumb {
+    width: 50px;
+    height: 50px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    margin-right: 12px;
+    flex-shrink: 0;
+}
+
+.equipment-thumb-placeholder {
+    width: 50px;
+    height: 50px;
+    background-color: #f8f9fa;
+    border: 1px dashed #ccc;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+    flex-shrink: 0;
+    color: #6c757d;
+    font-size: 10px;
+    text-align: center;
+}
+
+.equipment-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.equipment-name {
+    font-weight: 500;
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.equipment-availability {
+    font-size: 0.85em;
+    color: #6c757d;
+}
+
+.custom-equipment-select {
+    position: relative;
+}
+
+.equipment-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 1px solid #ced4da;
+    border-top: none;
+    border-radius: 0 0 0.375rem 0.375rem;
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 1000;
+    display: none;
+}
+
+.equipment-select-display {
+    padding: 0.375rem 2.25rem 0.375rem 0.75rem;
+    background-color: #fff;
+    border: 1px solid #ced4da;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+}
+
+.equipment-select-display:focus {
+    outline: 0;
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+.equipment-select-arrow {
+    position: absolute;
+    right: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+
+.selected-equipment {
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+.selected-equipment .equipment-thumb,
+.selected-equipment .equipment-thumb-placeholder {
+    width: 30px;
+    height: 30px;
+    margin-right: 8px;
+}
+</style>
+
 <div class="row">
     <div class="col-md-8">
         <div class="card">
@@ -23,9 +143,16 @@
                         </div>
                         <div class="col-md-3">
                             <label for="equipment_id" class="form-label">型號</label>
-                            <select class="form-select" id="equipment_id" name="equipment_id" required disabled>
-                                <option value="">請先選擇類別</option>
-                            </select>
+                            <div class="custom-equipment-select">
+                                <input type="hidden" id="equipment_id" name="equipment_id" required>
+                                <div class="equipment-select-display" id="equipmentSelectDisplay" tabindex="0">
+                                    <span class="text-muted">請先選擇類別</span>
+                                    <i class="fas fa-chevron-down equipment-select-arrow"></i>
+                                </div>
+                                <div class="equipment-dropdown" id="equipmentDropdown">
+                                    <!-- 動態載入器材選項 -->
+                                </div>
+                            </div>
                         </div>
                         <div class="col-md-2">
                             <label for="borrow_quantity" class="form-label">借用數量</label>
@@ -254,62 +381,106 @@
 {% block scripts %}
 <script>
 let currentAvailable = 0;
+let currentEquipmentData = [];
 
+// 自訂下拉選單處理
 document.getElementById('category').addEventListener('change', function() {
     const category = this.value;
-    const equipmentSelect = document.getElementById('equipment_id');
+    const equipmentDisplay = document.getElementById('equipmentSelectDisplay');
+    const equipmentDropdown = document.getElementById('equipmentDropdown');
+    const equipmentIdInput = document.getElementById('equipment_id');
     const quantitySelect = document.getElementById('borrow_quantity');
     const borrowBtn = document.getElementById('borrowBtn');
     
     // 重置所有下拉選單
-    equipmentSelect.disabled = true;
+    equipmentIdInput.value = '';
     quantitySelect.disabled = true;
     borrowBtn.disabled = true;
     quantitySelect.innerHTML = '<option value="">請先選擇型號</option>';
+    equipmentDropdown.style.display = 'none';
     
     if (!category) {
-        equipmentSelect.innerHTML = '<option value="">請先選擇類別</option>';
+        equipmentDisplay.innerHTML = '<span class="text-muted">請先選擇類別</span><i class="fas fa-chevron-down equipment-select-arrow"></i>';
+        equipmentDropdown.innerHTML = '';
+        currentEquipmentData = [];
         return;
     }
     
     fetch(`/get_models/${category}`)
         .then(response => response.json())
         .then(data => {
-            equipmentSelect.innerHTML = '<option value="">請選擇型號</option>';
+            currentEquipmentData = data.models;
+            equipmentDropdown.innerHTML = '';
+            
             if (data.models.length === 0) {
-                equipmentSelect.innerHTML = '<option value="">該類別器材已全部借完</option>';
+                equipmentDisplay.innerHTML = '<span class="text-muted">該類別器材已全部借完</span><i class="fas fa-chevron-down equipment-select-arrow"></i>';
                 return;
             }
             
-            data.models.forEach(model => {
-                const option = document.createElement('option');
-                option.value = model.id;
-                option.textContent = model.name;
-                option.setAttribute('data-available', model.available);
-                equipmentSelect.appendChild(option);
+            // 建立器材選項
+            data.models.forEach((model, index) => {
+                const option = document.createElement('div');
+                option.className = 'equipment-option';
+                option.onclick = () => selectEquipment(model);
+                
+                // 建立圖片元素
+                let imageElement;
+                if (model.thumb_url) {
+                    imageElement = `<img src="${model.thumb_url}" class="equipment-thumb" alt="${model.name}" onerror="this.outerHTML='<div class=equipment-thumb-placeholder>無圖片</div>'">`;
+                } else {
+                    imageElement = '<div class="equipment-thumb-placeholder">無圖片</div>';
+                }
+                
+                option.innerHTML = `
+                    ${imageElement}
+                    <div class="equipment-info">
+                        <div class="equipment-name">${model.name}</div>
+                        <div class="equipment-availability">可借用 ${model.available} 件</div>
+                    </div>
+                `;
+                
+                equipmentDropdown.appendChild(option);
             });
-            equipmentSelect.disabled = false;
+            
+            equipmentDisplay.innerHTML = '<span class="text-muted">請選擇型號</span><i class="fas fa-chevron-down equipment-select-arrow"></i>';
         })
         .catch(error => {
             console.error('Error:', error);
-            equipmentSelect.innerHTML = '<option value="">載入失敗，請重試</option>';
+            equipmentDisplay.innerHTML = '<span class="text-danger">載入失敗，請重試</span><i class="fas fa-chevron-down equipment-select-arrow"></i>';
         });
 });
 
-document.getElementById('equipment_id').addEventListener('change', function() {
+function selectEquipment(model) {
+    const equipmentDisplay = document.getElementById('equipmentSelectDisplay');
+    const equipmentDropdown = document.getElementById('equipmentDropdown');
+    const equipmentIdInput = document.getElementById('equipment_id');
     const quantitySelect = document.getElementById('borrow_quantity');
-    const borrowBtn = document.getElementById('borrowBtn');
     
-    if (!this.value) {
-        quantitySelect.disabled = true;
-        quantitySelect.innerHTML = '<option value="">請先選擇型號</option>';
-        borrowBtn.disabled = true;
-        return;
+    // 設定選中的器材
+    equipmentIdInput.value = model.id;
+    currentAvailable = model.available;
+    
+    // 更新顯示
+    let imageElement;
+    if (model.thumb_url) {
+        imageElement = `<img src="${model.thumb_url}" class="equipment-thumb" alt="${model.name}" onerror="this.outerHTML='<div class=equipment-thumb-placeholder>無圖片</div>'">`;
+    } else {
+        imageElement = '<div class="equipment-thumb-placeholder">無圖片</div>';
     }
     
-    // 取得可借數量
-    const selectedOption = this.options[this.selectedIndex];
-    currentAvailable = parseInt(selectedOption.getAttribute('data-available')) || 0;
+    equipmentDisplay.innerHTML = `
+        <div class="selected-equipment">
+            ${imageElement}
+            <div class="equipment-info">
+                <div class="equipment-name">${model.name}</div>
+                <div class="equipment-availability">可借用 ${model.available} 件</div>
+            </div>
+        </div>
+        <i class="fas fa-chevron-down equipment-select-arrow"></i>
+    `;
+    
+    // 隱藏下拉選單
+    equipmentDropdown.style.display = 'none';
     
     // 建立數量選項
     quantitySelect.innerHTML = '<option value="">請選擇數量</option>';
@@ -321,35 +492,46 @@ document.getElementById('equipment_id').addEventListener('change', function() {
     }
     
     quantitySelect.disabled = false;
-    borrowBtn.disabled = true;
+    updateBorrowButton();
+}
+
+// 點擊顯示區域切換下拉選單
+document.getElementById('equipmentSelectDisplay').addEventListener('click', function() {
+    const equipmentDropdown = document.getElementById('equipmentDropdown');
+    if (currentEquipmentData.length > 0) {
+        equipmentDropdown.style.display = equipmentDropdown.style.display === 'none' ? 'block' : 'none';
+    }
 });
 
-document.getElementById('borrow_quantity').addEventListener('change', function() {
-    const borrowBtn = document.getElementById('borrowBtn');
-    const rentalDuration = document.getElementById('rental_duration');
-    
-    // 檢查數量和租借時間都有填寫才啟用按鈕
-    borrowBtn.disabled = !(this.value && rentalDuration.value);
+// 點擊其他地方關閉下拉選單
+document.addEventListener('click', function(event) {
+    const equipmentSelect = document.querySelector('.custom-equipment-select');
+    if (!equipmentSelect.contains(event.target)) {
+        document.getElementById('equipmentDropdown').style.display = 'none';
+    }
 });
 
-// 新增：租借時間輸入檢查
-document.getElementById('rental_duration').addEventListener('input', function() {
+// 鍵盤支援
+document.getElementById('equipmentSelectDisplay').addEventListener('keydown', function(event) {
+    if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        this.click();
+    }
+});
+
+document.getElementById('borrow_quantity').addEventListener('change', updateBorrowButton);
+document.getElementById('rental_duration').addEventListener('input', updateBorrowButton);
+document.getElementById('time_unit').addEventListener('change', updateBorrowButton);
+
+function updateBorrowButton() {
     const borrowBtn = document.getElementById('borrowBtn');
     const quantitySelect = document.getElementById('borrow_quantity');
-    
-    // 檢查數量和租借時間都有填寫才啟用按鈕
-    borrowBtn.disabled = !(this.value && quantitySelect.value);
-});
-
-// 新增：時間單位改變時也檢查
-document.getElementById('time_unit').addEventListener('change', function() {
-    const borrowBtn = document.getElementById('borrowBtn');
-    const quantitySelect = document.getElementById('borrow_quantity');
     const rentalDuration = document.getElementById('rental_duration');
+    const equipmentId = document.getElementById('equipment_id');
     
-    // 檢查數量和租借時間都有填寫才啟用按鈕
-    borrowBtn.disabled = !(rentalDuration.value && quantitySelect.value);
-});
+    // 檢查所有必填欄位都有填寫才啟用按鈕
+    borrowBtn.disabled = !(equipmentId.value && quantitySelect.value && rentalDuration.value);
+}
 
 // 處理歸還模態對話框
 const returnModal = document.getElementById('returnModal');

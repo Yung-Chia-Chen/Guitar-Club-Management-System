@@ -14,6 +14,37 @@
 .rental-record .badge {
     border: 1px solid rgba(255,255,255,0.3);
 }
+
+/* 器材圖片樣式 */
+.equipment-image {
+    width: 50px;
+    height: 50px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+}
+
+.equipment-image-placeholder {
+    width: 50px;
+    height: 50px;
+    background-color: #f8f9fa;
+    border: 1px dashed #ddd;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6c757d;
+    font-size: 12px;
+}
+
+.image-upload-preview {
+    max-width: 150px;
+    max-height: 150px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    margin-top: 10px;
+}
 </style>
 
 <div class="row">
@@ -89,6 +120,7 @@
                                     <table class="table table-striped">
                                         <thead>
                                             <tr>
+                                                <th>圖片</th>
                                                 <th>器材類型</th>
                                                 <th>型號</th>
                                                 <th>總數量</th>
@@ -101,18 +133,39 @@
                                         <tbody>
                                             {% for item in equipment_status %}
                                             <tr>
+                                                <td>
+                                                    {% if item[7] %}
+                                                        <img src="{{ item[7] }}" class="equipment-image" 
+                                                             alt="{{ item[2] }}" 
+                                                             onclick="showImageModal('{{ item[6] or item[7] }}', '{{ item[2] }}')"
+                                                             style="cursor: pointer;"
+                                                             onerror="this.parentElement.innerHTML='<div class=equipment-image-placeholder>無圖片</div>'">
+                                                    {% else %}
+                                                        <div class="equipment-image-placeholder">無圖片</div>
+                                                    {% endif %}
+                                                </td>
                                                 <td>{{ item[1] }}</td>
                                                 <td>{{ item[2] }}</td>
                                                 <td>
-                                                    <form method="POST" action="{{ url_for('update_equipment') }}" class="d-inline">
+                                                    <form method="POST" action="{{ url_for('update_equipment') }}" class="d-inline" enctype="multipart/form-data">
                                                         <input type="hidden" name="equipment_id" value="{{ item[0] }}">
-                                                        <div class="input-group input-group-sm" style="width: 80px;">
+                                                        <div class="input-group input-group-sm" style="width: 120px;">
                                                             <input type="number" class="form-control" name="total_quantity" 
                                                                    value="{{ item[3] }}" min="1" max="99">
+                                                            <button type="button" class="btn btn-outline-secondary btn-sm" 
+                                                                    onclick="toggleImageUpload({{ item[0] }})" title="上傳圖片">
+                                                                <i class="fas fa-camera"></i>
+                                                            </button>
                                                             <button type="submit" class="btn btn-outline-primary btn-sm" 
                                                                     onclick="return confirm('確定要修改數量嗎？')">
                                                                 <i class="fas fa-check"></i>
                                                             </button>
+                                                        </div>
+                                                        <div id="imageUpload{{ item[0] }}" class="mt-2" style="display: none;">
+                                                            <input type="file" class="form-control form-control-sm" 
+                                                                   name="equipment_image" accept="image/*"
+                                                                   onchange="previewImage(this, {{ item[0] }})">
+                                                            <div id="imagePreview{{ item[0] }}"></div>
                                                         </div>
                                                     </form>
                                                 </td>
@@ -153,7 +206,7 @@
                                 <h6 class="mb-0"><i class="fas fa-plus"></i> 新增器材</h6>
                             </div>
                             <div class="card-body">
-                                <form method="POST" action="{{ url_for('add_equipment') }}">
+                                <form method="POST" action="{{ url_for('add_equipment') }}" enctype="multipart/form-data">
                                     <div class="mb-3">
                                         <label for="category" class="form-label">器材類型</label>
                                         <input type="text" class="form-control" id="category" name="category" 
@@ -168,6 +221,13 @@
                                         <label for="total_quantity" class="form-label">數量</label>
                                         <input type="number" class="form-control" id="total_quantity" name="total_quantity" 
                                                min="1" max="99" value="1" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="equipment_image" class="form-label">器材圖片</label>
+                                        <input type="file" class="form-control" id="equipment_image" name="equipment_image" 
+                                               accept="image/*" onchange="previewNewImage(this)">
+                                        <div class="form-text">支援 JPG, PNG 格式，檔案大小不超過 5MB</div>
+                                        <div id="newImagePreview"></div>
                                     </div>
                                     <div class="d-grid">
                                         <button type="submit" class="btn btn-primary">
@@ -186,7 +246,9 @@
                             <div class="card-body">
                                 <ul class="list-unstyled small">
                                     <li><i class="fas fa-edit text-primary"></i> 直接修改總數量並點擊 ✓</li>
+                                    <li><i class="fas fa-camera text-info"></i> 點擊相機圖示上傳圖片</li>
                                     <li><i class="fas fa-plus text-success"></i> 右側表單新增器材</li>
+                                    <li><i class="fas fa-image text-warning"></i> 點擊圖片可放大檢視</li>
                                     <li><i class="fas fa-trash text-danger"></i> 刪除器材（需無借用記錄）</li>
                                     <li><i class="fas fa-exclamation-triangle text-warning"></i> 總數量不能小於已借出數量</li>
                                 </ul>
@@ -403,6 +465,21 @@
     </div>
 </div>
 
+<!-- 圖片檢視模態對話框 -->
+<div class="modal fade" id="imageModal" tabindex="-1" aria-labelledby="imageModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="imageModalLabel">器材圖片</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="modalImage" src="" class="img-fluid" alt="器材圖片" style="max-height: 500px;">
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- 重設密碼模態對話框 -->
 <div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-labelledby="resetPasswordModalLabel" aria-hidden="true">
     <div class="modal-dialog">
@@ -516,7 +593,86 @@
 </div>
 
 <script>
-// 計算借用天數和逾期狀態
+// 圖片相關功能
+function showImageModal(imageUrl, equipmentName) {
+    document.getElementById('modalImage').src = imageUrl;
+    document.getElementById('imageModalLabel').textContent = `器材圖片 - ${equipmentName}`;
+    new bootstrap.Modal(document.getElementById('imageModal')).show();
+}
+
+function toggleImageUpload(equipmentId) {
+    const uploadDiv = document.getElementById(`imageUpload${equipmentId}`);
+    if (uploadDiv.style.display === 'none') {
+        uploadDiv.style.display = 'block';
+    } else {
+        uploadDiv.style.display = 'none';
+    }
+}
+
+function previewImage(input, equipmentId) {
+    const previewDiv = document.getElementById(`imagePreview${equipmentId}`);
+    previewDiv.innerHTML = '';
+    
+    if (input.files && input.files[0]) {
+        const file = input.files[0];
+        
+        // 檢查檔案大小 (5MB)
+        if (file.size > 5 * 1024 * 1024) {
+            alert('檔案大小不能超過 5MB');
+            input.value = '';
+            return;
+        }
+        
+        // 檢查檔案類型
+        if (!file.type.startsWith('image/')) {
+            alert('請選擇圖片檔案');
+            input.value = '';
+            return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = document.createElement('img');
+            img.src = e.target.result;
+            img.className = 'image-upload-preview';
+            previewDiv.appendChild(img);
+        };
+        reader.readAsDataURL(file);
+    }
+}
+
+function previewNewImage(input) {
+    const previewDiv = document.getElementById('newImagePreview');
+    previewDiv.innerHTML = '';
+    
+    if (input.files && input.files[0]) {
+        const file = input.files[0];
+        
+        // 檢查檔案大小 (5MB)
+        if (file.size > 5 * 1024 * 1024) {
+            alert('檔案大小不能超過 5MB');
+            input.value = '';
+            return;
+        }
+        
+        // 檢查檔案類型
+        if (!file.type.startsWith('image/')) {
+            alert('請選擇圖片檔案');
+            input.value = '';
+            return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = document.createElement('img');
+            img.src = e.target.result;
+            img.className = 'image-upload-preview';
+            previewDiv.appendChild(img);
+        };
+        reader.readAsDataURL(file);
+    }
+}
+
 // 計算借用天數和逾期狀態
 document.addEventListener('DOMContentLoaded', function() {
     // 處理逾期狀態計算

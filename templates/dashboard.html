@@ -29,6 +29,12 @@
     border: 1px solid #ddd;
     margin-right: 12px;
     flex-shrink: 0;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.equipment-thumb:hover {
+    transform: scale(1.05);
 }
 
 .equipment-thumb-placeholder {
@@ -121,6 +127,29 @@
     height: 30px;
     margin-right: 8px;
 }
+
+/* 圖片預覽按鈕 */
+.preview-image-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    position: relative;
+}
+
+.preview-image-btn:hover::after {
+    content: "點擊放大";
+    position: absolute;
+    bottom: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.8);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    white-space: nowrap;
+    z-index: 1001;
+}
 </style>
 
 <div class="row">
@@ -194,6 +223,7 @@
                     <li><i class="fas fa-check text-success"></i> 如有損壞請立即通知</li>
                     <li><i class="fas fa-calendar text-info"></i> 可選擇小時或天數單位</li>
                     <li><i class="fas fa-clock text-warning"></i> 建議按時歸還器材</li>
+                    <li><i class="fas fa-image text-info"></i> 點擊器材圖片可放大查看</li>
                 </ul>
             </div>
         </div>
@@ -333,6 +363,24 @@
     </div>
 </div>
 
+<!-- 圖片預覽模態對話框 -->
+<div class="modal fade" id="imagePreviewModal" tabindex="-1" aria-labelledby="imagePreviewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="imagePreviewModalLabel">器材圖片</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="previewImage" src="" class="img-fluid" alt="器材圖片" style="max-height: 500px; border-radius: 8px;">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">關閉</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- 歸還器材模態對話框 -->
 <div class="modal fade" id="returnModal" tabindex="-1" aria-labelledby="returnModalLabel" aria-hidden="true">
     <div class="modal-dialog">
@@ -383,6 +431,13 @@
 let currentAvailable = 0;
 let currentEquipmentData = [];
 
+// 圖片預覽功能
+function showImagePreview(imageUrl, equipmentName) {
+    document.getElementById('previewImage').src = imageUrl;
+    document.getElementById('imagePreviewModalLabel').textContent = `器材圖片 - ${equipmentName}`;
+    new bootstrap.Modal(document.getElementById('imagePreviewModal')).show();
+}
+
 // 自訂下拉選單處理
 document.getElementById('category').addEventListener('change', function() {
     const category = this.value;
@@ -426,7 +481,12 @@ document.getElementById('category').addEventListener('change', function() {
                 // 建立圖片元素
                 let imageElement;
                 if (model.thumb_url) {
-                    imageElement = `<img src="${model.thumb_url}" class="equipment-thumb" alt="${model.name}" onerror="this.outerHTML='<div class=equipment-thumb-placeholder>無圖片</div>'">`;
+                    // 加入點擊預覽功能
+                    imageElement = `
+                        <button type="button" class="preview-image-btn" onclick="event.stopPropagation(); showImagePreview('${model.thumb_url}', '${model.name}')">
+                            <img src="${model.thumb_url}" class="equipment-thumb" alt="${model.name}" 
+                                 onerror="this.parentElement.outerHTML='<div class=equipment-thumb-placeholder>無圖片</div>'">
+                        </button>`;
                 } else {
                     imageElement = '<div class="equipment-thumb-placeholder">無圖片</div>';
                 }
@@ -463,7 +523,11 @@ function selectEquipment(model) {
     // 更新顯示
     let imageElement;
     if (model.thumb_url) {
-        imageElement = `<img src="${model.thumb_url}" class="equipment-thumb" alt="${model.name}" onerror="this.outerHTML='<div class=equipment-thumb-placeholder>無圖片</div>'">`;
+        imageElement = `
+            <button type="button" class="preview-image-btn" onclick="showImagePreview('${model.thumb_url}', '${model.name}')">
+                <img src="${model.thumb_url}" class="equipment-thumb" alt="${model.name}" 
+                     onerror="this.parentElement.outerHTML='<div class=equipment-thumb-placeholder>無圖片</div>'">
+            </button>`;
     } else {
         imageElement = '<div class="equipment-thumb-placeholder">無圖片</div>';
     }

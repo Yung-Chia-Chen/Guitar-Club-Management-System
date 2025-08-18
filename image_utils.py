@@ -20,14 +20,14 @@ def get_supabase_client():
 
 def process_and_upload_image(file, equipment_id: int) -> Tuple[Optional[str], Optional[str]]:
     """
-    處理並上傳圖片到 Supabase Storage
+    處理並上傳圖片到 Supabase Storage (僅保存原圖)
     
     Args:
         file: 上傳的檔案物件 (Flask request.files)
         equipment_id: 器材 ID
     
     Returns:
-        Tuple[str, str]: (原圖 URL, 縮圖 URL)
+        Tuple[str, str]: (原圖 URL, 原圖 URL) - 為了向後相容，兩個都返回相同的 URL
     """
     try:
         supabase = get_supabase_client()
@@ -61,26 +61,21 @@ def process_and_upload_image(file, equipment_id: int) -> Tuple[Optional[str], Op
         # 自動修正圖片方向 (處理手機拍照旋轉問題)
         original_image = ImageOps.exif_transpose(original_image)
         
-        # 處理原圖 (最大寬度 1200px)
-        full_image = resize_image(original_image, max_width=1200)
-        full_image_data = image_to_bytes(full_image, quality=85)
+        # 只處理原圖 (最大寬度 1200px)
+        processed_image = resize_image(original_image, max_width=1200)
+        image_data = image_to_bytes(processed_image, quality=85)
         
-        # 處理縮圖 (60x60px 正方形)
-        thumb_image = create_square_thumbnail(original_image, size=60)
-        thumb_image_data = image_to_bytes(thumb_image, quality=80)
-        
-        # 上傳到 Supabase Storage
-        full_filename = f"equipment_{equipment_id}_full.jpg"
-        thumb_filename = f"equipment_{equipment_id}_thumb.jpg"
+        # 只上傳原圖到 Supabase Storage
+        filename = f"equipment_{equipment_id}_full.jpg"
         
         # 刪除舊圖片 (如果存在)
         delete_existing_images(equipment_id)
         
         # 上傳新圖片
-        full_url = upload_to_supabase(full_image_data, full_filename)
-        thumb_url = upload_to_supabase(thumb_image_data, thumb_filename)
+        image_url = upload_to_supabase(image_data, filename)
         
-        return full_url, thumb_url
+        # 返回相同的 URL 給 full 和 thumb，保持向後相容
+        return image_url, image_url
         
     except Exception as e:
         print(f"圖片處理錯誤: {e}")
@@ -98,31 +93,6 @@ def resize_image(image: Image.Image, max_width: int) -> Image.Image:
     new_height = int(image.height * ratio)
     
     return image.resize((max_width, new_height), Image.Resampling.LANCZOS)
-
-def create_square_thumbnail(image: Image.Image, size: int) -> Image.Image:
-    """
-    建立正方形縮圖，使用智慧裁切 (中心裁切)
-    """
-    # 獲取原圖尺寸
-    width, height = image.size
-    
-    # 計算裁切區域 (保持中心)
-    if width > height:
-        # 橫向圖片，裁切左右
-        left = (width - height) // 2
-        right = left + height
-        crop_box = (left, 0, right, height)
-    else:
-        # 縱向圖片，裁切上下
-        top = (height - width) // 2
-        bottom = top + width
-        crop_box = (0, top, width, bottom)
-    
-    # 裁切成正方形
-    square_image = image.crop(crop_box)
-    
-    # 縮放到目標大小
-    return square_image.resize((size, size), Image.Resampling.LANCZOS)
 
 def image_to_bytes(image: Image.Image, quality: int = 85) -> bytes:
     """
@@ -162,15 +132,16 @@ def upload_to_supabase(image_data: bytes, filename: str) -> Optional[str]:
 
 def delete_existing_images(equipment_id: int):
     """
-    刪除器材的現有圖片
+    刪除器材的現有圖片 (包含舊的縮圖檔案)
     """
     try:
         supabase = get_supabase_client()
         if not supabase:
             return
         
+        # 刪除原圖和舊的縮圖檔案
         full_filename = f"equipment_{equipment_id}_full.jpg"
-        thumb_filename = f"equipment_{equipment_id}_thumb.jpg"
+        thumb_filename = f"equipment_{equipment_id}_thumb.jpg"  # 清理舊縮圖
         
         # 嘗試刪除 (如果檔案不存在也不會錯誤)
         supabase.storage.from_(BUCKET_NAME).remove([full_filename, thumb_filename])
@@ -191,30 +162,24 @@ def delete_equipment_images(equipment_id: int) -> bool:
 
 def get_image_urls(equipment_id: int) -> Tuple[Optional[str], Optional[str]]:
     """
-    取得器材圖片的 URL
+    取得器材圖片的 URL (現在只返回原圖 URL)
     """
     try:
         supabase = get_supabase_client()
         if not supabase:
             return None, None
         
-        full_filename = f"equipment_{equipment_id}_full.jpg"
-        thumb_filename = f"equipment_{equipment_id}_thumb.jpg"
+        filename = f"equipment_{equipment_id}_full.jpg"
         
         # 檢查檔案是否存在
-        full_exists = check_file_exists(full_filename)
-        thumb_exists = check_file_exists(thumb_filename)
+        file_exists = check_file_exists(filename)
         
-        full_url = None
-        thumb_url = None
+        image_url = None
+        if file_exists:
+            image_url = supabase.storage.from_(BUCKET_NAME).get_public_url(filename)
         
-        if full_exists:
-            full_url = supabase.storage.from_(BUCKET_NAME).get_public_url(full_filename)
-        
-        if thumb_exists:
-            thumb_url = supabase.storage.from_(BUCKET_NAME).get_public_url(thumb_filename)
-        
-        return full_url, thumb_url
+        # 返回相同的 URL 給 full 和 thumb，保持向後相容
+        return image_url, image_url
         
     except Exception as e:
         print(f"取得圖片 URL 錯誤: {e}")

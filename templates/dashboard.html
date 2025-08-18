@@ -27,6 +27,10 @@
     object-fit: cover;
     border-radius: 4px;
     border: 1px solid #ddd;
+    margin-right: 12px;
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: transform 0.2s;
 }
 
 .equipment-thumb:hover {
@@ -37,13 +41,16 @@
     width: 50px;
     height: 50px;
     background-color: #f8f9fa;
-    border: 1px dashed #ddd;
+    border: 1px dashed #ccc;
     border-radius: 4px;
     display: flex;
     align-items: center;
     justify-content: center;
+    margin-right: 12px;
+    flex-shrink: 0;
     color: #6c757d;
-    font-size: 12px;
+    font-size: 10px;
+    text-align: center;
 }
 
 .equipment-info {
@@ -445,11 +452,11 @@ document.getElementById('category').addEventListener('change', function() {
                 option.className = 'equipment-option';
                 option.onclick = () => selectEquipment(model);
                 
-                // 建立圖片元素 (完全模仿管理員介面)
+                // 建立圖片元素 (使用原圖，不是縮圖)
                 let imageElement;
-                if (model.thumb_url) {
-                    imageElement = `<img src="${model.thumb_url}" class="equipment-thumb" alt="${model.name}" 
-                                     onclick="event.stopPropagation(); showImageModal('${model.thumb_url}', '${model.name}')"
+                if (model.image_url) {
+                    imageElement = `<img src="${model.image_url}" class="equipment-thumb" alt="${model.name}" 
+                                     onclick="event.stopPropagation(); showImageModal('${model.image_url}', '${model.name}')"
                                      style="cursor: pointer;"
                                      onerror="this.parentElement.innerHTML='<div class=equipment-thumb-placeholder>無圖片</div>'">`;
                 } else {
@@ -485,11 +492,11 @@ function selectEquipment(model) {
     equipmentIdInput.value = model.id;
     currentAvailable = model.available;
     
-    // 更新顯示 (完全模仿管理員介面)
+    // 更新顯示 (使用原圖，不是縮圖)
     let imageElement;
-    if (model.thumb_url) {
-        imageElement = `<img src="${model.thumb_url}" class="equipment-thumb" alt="${model.name}" 
-                         onclick="showImageModal('${model.thumb_url}', '${model.name}')"
+    if (model.image_url) {
+        imageElement = `<img src="${model.image_url}" class="equipment-thumb" alt="${model.name}" 
+                         onclick="showImageModal('${model.image_url}', '${model.name}')"
                          style="cursor: pointer;"
                          onerror="this.parentElement.innerHTML='<div class=equipment-thumb-placeholder>無圖片</div>'">`;
     } else {

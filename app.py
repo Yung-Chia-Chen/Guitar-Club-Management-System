@@ -1075,6 +1075,63 @@ def migrate_db():
     
     return redirect(url_for('admin_panel'))
 
+@app.route('/clear_all_records', methods=['POST'])
+@admin_required
+def clear_all_records():
+    """清空所有租借記錄（危險操作，需要管理員權限）"""
+    confirmation_text = request.form.get('confirmation_text', '').strip()
+    
+    # 驗證確認文字
+    if confirmation_text != '清空所有記錄':
+        flash('確認文字錯誤，操作已取消', 'error')
+        return redirect(url_for('admin_panel'))
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # 開始事務
+        cursor.execute('BEGIN')
+        
+        # 統計將要刪除的記錄數量
+        cursor.execute('SELECT COUNT(*) FROM rental_records')
+        total_records = cursor.fetchone()[0]
+        
+        if total_records == 0:
+            flash('沒有需要清空的租借記錄', 'info')
+            conn.rollback()
+            conn.close()
+            return redirect(url_for('admin_panel'))
+        
+        # 重置所有器材的可用數量為總數量
+        cursor.execute('''
+            UPDATE equipment 
+            SET available_quantity = total_quantity 
+            WHERE deleted_at IS NULL
+        ''')
+        
+        # 刪除所有租借記錄
+        cursor.execute('DELETE FROM rental_records')
+        
+        # 提交事務
+        conn.commit()
+        
+        # 記錄操作日誌
+        admin_name = session.get('user_name', '未知管理員')
+        current_time = get_taiwan_time()
+        print(f"[{current_time}] 管理員 {admin_name} 清空了所有租借記錄 (共 {total_records} 筆)")
+        
+        flash(f'✅ 成功清空所有租借記錄！共刪除 {total_records} 筆記錄，所有器材庫存已重置', 'success')
+        
+    except Exception as e:
+        conn.rollback()
+        flash('清空記錄失敗，請稍後再試', 'error')
+        print(f"Clear records error: {e}")
+    finally:
+        conn.close()
+    
+    return redirect(url_for('admin_panel'))
+
 @app.route('/export_excel')
 @admin_required
 def export_excel():

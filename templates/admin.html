@@ -393,12 +393,24 @@
                 <div class="card mt-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5 class="mb-0"><i class="fas fa-history"></i> 所有租借記錄</h5>
-                        <a href="{{ url_for('export_excel') }}" class="btn btn-success btn-sm">
-                            <i class="fas fa-file-excel"></i> 匯出 Excel
-                        </a>
+                        <div class="btn-group" role="group">
+                            <a href="{{ url_for('export_excel') }}" class="btn btn-success btn-sm">
+                                <i class="fas fa-file-excel"></i> 匯出 Excel
+                            </a>
+                            <button type="button" class="btn btn-danger btn-sm ms-2" 
+                                    data-bs-toggle="modal" 
+                                    data-bs-target="#clearRecordsModal">
+                                <i class="fas fa-trash-alt"></i> 清空記錄
+                            </button>
+                        </div>
                     </div>
                     <div class="card-body">
                         {% if all_rentals %}
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i>
+                            <strong>記錄說明：</strong>深色背景為初始租借記錄，白色背景為歸還記錄。
+                            清空記錄功能會刪除所有租借歷史並重置器材庫存。
+                        </div>
                         <div class="table-responsive">
                             <table class="table table-sm">
                                 <thead>
@@ -464,6 +476,116 @@
         </div>
     </div>
 </div>
+
+<!-- 清空租借記錄確認對話框 -->
+<div class="modal fade" id="clearRecordsModal" tabindex="-1" aria-labelledby="clearRecordsModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="clearRecordsModalLabel">
+                    <i class="fas fa-exclamation-triangle"></i> 危險操作：清空所有租借記錄
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="{{ url_for('clear_all_records') }}">
+                <div class="modal-body">
+                    <div class="alert alert-danger">
+                        <i class="fas fa-skull-crossbones"></i>
+                        <strong>⚠️ 超級危險操作 ⚠️</strong><br>
+                        此操作將會<strong>永久刪除</strong>所有租借記錄，無法復原！
+                    </div>
+                    
+                    <div class="card bg-light">
+                        <div class="card-header">
+                            <h6 class="mb-0">📋 此操作將會：</h6>
+                        </div>
+                        <div class="card-body">
+                            <ul class="list-unstyled mb-0">
+                                <li>❌ <strong>刪除所有租借記錄</strong> (包含歷史記錄)</li>
+                                <li>❌ <strong>刪除所有歸還記錄</strong></li>
+                                <li>🔄 <strong>重置所有器材庫存</strong> (設為最大可借數量)</li>
+                                <li>✅ <strong>保留所有用戶資料</strong></li>
+                                <li>✅ <strong>保留所有器材資料</strong></li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <h6>⚠️ 使用場景：</h6>
+                        <ul class="small text-muted">
+                            <li>學期結束，需要重置系統</li>
+                            <li>測試完成，準備正式使用</li>
+                            <li>資料錯誤過多，需要重新開始</li>
+                        </ul>
+                    </div>
+                    
+                    <hr>
+                    
+                    <div class="mb-3">
+                        <label for="confirmationText" class="form-label">
+                            <strong>安全確認：</strong>請輸入「<span class="text-danger">清空所有記錄</span>」來確認操作
+                        </label>
+                        <input type="text" class="form-control" name="confirmation_text" id="confirmationText" 
+                               placeholder="請完全按照要求輸入確認文字" required>
+                        <div class="form-text">
+                            必須完全一致才能執行操作，大小寫和標點符號都要正確
+                        </div>
+                    </div>
+                    
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="finalConfirmation" required>
+                        <label class="form-check-label" for="finalConfirmation">
+                            我了解此操作的後果，並確認要執行清空記錄操作
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="fas fa-times"></i> 取消
+                    </button>
+                    <button type="submit" class="btn btn-danger" id="clearRecordsBtn" disabled>
+                        <i class="fas fa-trash-alt"></i> 確認清空所有記錄
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// 清空記錄確認邏輯
+document.addEventListener('DOMContentLoaded', function() {
+    const confirmationText = document.getElementById('confirmationText');
+    const finalConfirmation = document.getElementById('finalConfirmation');
+    const clearBtn = document.getElementById('clearRecordsBtn');
+    
+    function validateClearForm() {
+        const textCorrect = confirmationText.value === '清空所有記錄';
+        const checkboxChecked = finalConfirmation.checked;
+        
+        clearBtn.disabled = !(textCorrect && checkboxChecked);
+        
+        // 視覺回饋
+        if (confirmationText.value && !textCorrect) {
+            confirmationText.classList.add('is-invalid');
+        } else {
+            confirmationText.classList.remove('is-invalid');
+        }
+    }
+    
+    confirmationText.addEventListener('input', validateClearForm);
+    finalConfirmation.addEventListener('change', validateClearForm);
+    
+    // 重置表單當模態對話框關閉時
+    const clearModal = document.getElementById('clearRecordsModal');
+    clearModal.addEventListener('hidden.bs.modal', function() {
+        confirmationText.value = '';
+        finalConfirmation.checked = false;
+        confirmationText.classList.remove('is-invalid');
+        clearBtn.disabled = true;
+    });
+});
+</script>
 
 <!-- 圖片檢視模態對話框 -->
 <div class="modal fade" id="imageModal" tabindex="-1" aria-labelledby="imageModalLabel" aria-hidden="true">

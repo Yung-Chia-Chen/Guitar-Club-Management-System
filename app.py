@@ -377,9 +377,9 @@ def dashboard():
 @app.route('/get_models/<category>')
 @login_required
 def get_models(category):
-    # 修改查詢以包含圖片 URL，排除已刪除的器材
+    # 修改查詢以包含圖片 URL，排除已刪除的器材，使用原圖而非縮圖
     models = execute_query('''
-        SELECT id, model, available_quantity, total_quantity, image_thumb_url
+        SELECT id, model, available_quantity, total_quantity, image_full_url
         FROM equipment 
         WHERE category = %s AND available_quantity > 0 AND deleted_at IS NULL
     ''', (category,), fetch='all')
@@ -389,7 +389,7 @@ def get_models(category):
             'id': model[0], 
             'name': f"{model[1]} (可借: {model[2]}/{model[3]})",
             'available': model[2],
-            'thumb_url': model[4]  # 新增縮圖 URL
+            'image_url': model[4]  # 改為使用原圖 URL
         } for model in models
     ]}
 

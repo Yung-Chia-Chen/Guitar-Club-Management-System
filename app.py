@@ -353,7 +353,7 @@ def dashboard():
     cursor.execute('SELECT DISTINCT category FROM equipment WHERE deleted_at IS NULL')
     categories = [row[0] for row in cursor.fetchall()]
     
-    # 取得用戶的租借記錄（按時間和器材分組）
+    # 取得用戶的租借記錄（按時間和器材分組）- 不過濾已刪除器材，保留歷史記錄
     cursor.execute('''
         SELECT rr.rental_time, e.category, e.model, 
                COUNT(*) as quantity,
@@ -363,7 +363,7 @@ def dashboard():
                MAX(rr.return_time) as last_return_time
         FROM rental_records rr
         JOIN equipment e ON rr.equipment_id = e.id
-        WHERE rr.user_id = %s AND e.deleted_at IS NULL
+        WHERE rr.user_id = %s
         GROUP BY rr.rental_time, e.id
         ORDER BY rr.rental_time DESC
         LIMIT 10
@@ -515,7 +515,6 @@ def return_equipment_batch():
                 JOIN equipment e ON rr.equipment_id = e.id
                 WHERE rr.user_id = %s AND rr.rental_time = %s 
                       AND e.category = %s AND e.model = %s AND rr.status = 'borrowed'
-                      AND e.deleted_at IS NULL
                 ORDER BY rr.id
             ''', (session['user_id'], rental_time, equipment_category, equipment_model))
         else:
@@ -524,7 +523,6 @@ def return_equipment_batch():
                 FROM rental_records rr
                 JOIN equipment e ON rr.equipment_id = e.id
                 WHERE rr.user_id = %s AND e.category = %s AND e.model = %s AND rr.status = 'borrowed'
-                      AND e.deleted_at IS NULL
                 ORDER BY rr.rental_time ASC, rr.id ASC
             ''', (session['user_id'], equipment_category, equipment_model))
         
@@ -596,7 +594,7 @@ def admin_panel():
         cursor.execute('SELECT id, student_id, name, class_name, club_role, created_at FROM users WHERE is_admin = 0')
         members = cursor.fetchall()
         
-        # 取得所有租借記錄
+        # 取得所有租借記錄 - 保留已刪除器材的歷史記錄
         cursor.execute('''
             WITH rental_base AS (
                 SELECT u.name, u.student_id, e.category, e.model, 
@@ -605,7 +603,6 @@ def admin_panel():
                 FROM rental_records rr
                 JOIN users u ON rr.user_id = u.id
                 JOIN equipment e ON rr.equipment_id = e.id
-                WHERE e.deleted_at IS NULL
             ),
             rental_counts AS (
                 SELECT user_id, equipment_id, rental_time,
@@ -613,7 +610,6 @@ def admin_panel():
                        SUM(CASE WHEN status = 'borrowed' THEN 1 ELSE 0 END) as borrowed_count
                 FROM rental_records rr
                 JOIN equipment e ON rr.equipment_id = e.id
-                WHERE e.deleted_at IS NULL
                 GROUP BY user_id, equipment_id, rental_time
             ),
             rental_summary AS (
@@ -660,7 +656,7 @@ def admin_panel():
         ''')
         all_rentals = cursor.fetchall()
         
-        # 取得未歸還的器材（加入租借天數和預計歸還日期）
+        # 取得未歸還的器材（加入租借天數和預計歸還日期）- 排除已刪除器材
         cursor.execute('''
             SELECT u.name, u.student_id, e.category, e.model, 
                    COUNT(*) as total_borrowed_count,
@@ -1095,7 +1091,6 @@ def export_excel():
             FROM rental_records rr
             JOIN users u ON rr.user_id = u.id
             JOIN equipment e ON rr.equipment_id = e.id
-            WHERE e.deleted_at IS NULL
             ORDER BY rr.rental_time DESC
         '''
         

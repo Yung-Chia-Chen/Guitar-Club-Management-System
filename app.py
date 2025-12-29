@@ -740,12 +740,17 @@ def admin_panel():
         ''')
         equipment_status = cursor.fetchall()
         
+        # 計算實際的總租借次數（只計算原始租借記錄，不包含歸還記錄）
+        cursor.execute('SELECT COUNT(*) FROM rental_records')
+        total_rental_count = cursor.fetchone()[0]
+        
         conn.close()
         return render_template('admin.html', 
                              members=members, 
                              all_rentals=all_rentals, 
                              unreturned=unreturned,
-                             equipment_status=equipment_status)
+                             equipment_status=equipment_status,
+                             total_rental_count=total_rental_count)
     except Exception as e:
         conn.close()
         flash('載入管理介面失敗，請稍後再試', 'error')

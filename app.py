@@ -89,6 +89,16 @@ def init_db():
             )
         ''')
         
+        # 創建心跳表（用於保持 Supabase 活躍）
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS system_heartbeat (
+                id INTEGER PRIMARY KEY DEFAULT 1,
+                last_ping TIMESTAMP NOT NULL,
+                ping_count INTEGER DEFAULT 0,
+                CHECK (id = 1)
+            )
+        ''')
+        
         # 檢查並添加圖片欄位（遷移邏輯）
         try:
             cursor.execute('''
@@ -243,12 +253,59 @@ def index():
 @app.route('/health')
 def health_check():
     ensure_db_initialized()
-    return {
-        'status': 'healthy', 
-        'timestamp': get_taiwan_time(),
-        'message': 'Guitar Club System is running',
-        'database': 'PostgreSQL'
-    }
+    try:
+        # 執行實際的資料庫查詢與寫入來保持 Supabase 活躍
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 查詢用戶數量（輕量查詢）
+        cursor.execute('SELECT COUNT(*) FROM users')
+        user_count = cursor.fetchone()[0]
+        
+        # 查詢器材數量
+        cursor.execute('SELECT COUNT(*) FROM equipment WHERE deleted_at IS NULL')
+        equipment_count = cursor.fetchone()[0]
+        
+        # 更新心跳記錄（寫入操作，增加資料庫活動）
+        current_time = get_taiwan_time()
+        cursor.execute('''
+            INSERT INTO system_heartbeat (id, last_ping, ping_count)
+            VALUES (1, %s, 1)
+            ON CONFLICT (id) 
+            DO UPDATE SET 
+                last_ping = EXCLUDED.last_ping,
+                ping_count = system_heartbeat.ping_count + 1
+        ''', (current_time,))
+        
+        # 查詢心跳次數
+        cursor.execute('SELECT ping_count, last_ping FROM system_heartbeat WHERE id = 1')
+        heartbeat = cursor.fetchone()
+        ping_count = heartbeat[0] if heartbeat else 0
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return {
+            'status': 'healthy', 
+            'timestamp': current_time,
+            'message': 'Guitar Club System is running',
+            'database': 'PostgreSQL',
+            'db_active': True,
+            'heartbeat': ping_count,
+            'stats': {
+                'users': user_count,
+                'equipment': equipment_count
+            }
+        }
+    except Exception as e:
+        return {
+            'status': 'error',
+            'timestamp': get_taiwan_time(),
+            'message': f'Database connection failed: {str(e)}',
+            'database': 'PostgreSQL',
+            'db_active': False
+        }, 500
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -652,7 +709,6 @@ def admin_panel():
             FROM rental_summary
             ORDER BY rental_time DESC, sort_order ASC, 
                      CASE WHEN return_time IS NULL THEN '9999-12-31 23:59:59'::timestamp ELSE return_time END DESC
-            LIMIT 100
         ''')
         all_rentals = cursor.fetchall()
         
